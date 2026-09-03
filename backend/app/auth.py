@@ -2,12 +2,17 @@
 Verificación de autenticación para endpoints de FastAPI usando el
 JWT que emite Supabase Auth. El frontend manda el access_token en
 el header Authorization: Bearer <token> en cada request al backend.
+
+La verificación se hace contra el propio servidor de Supabase
+(supabase_admin.auth.get_user), en vez de decodificar el JWT
+manualmente: esto funciona sin importar si el proyecto usa el
+secreto compartido clásico (HS256) o las claves asimétricas nuevas
+que Supabase usa por defecto en proyectos recientes.
 """
 
 import os
 from dataclasses import dataclass
 
-import jwt
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,7 +22,6 @@ load_dotenv()  # Lee el archivo .env y carga sus variables en os.environ
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-SUPABASE_JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]  # Project Settings > API > JWT Secret
 
 # Cliente con permisos totales (usado solo en el backend, nunca en el frontend)
 supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -33,30 +37,27 @@ class UsuarioActual:
     estado: str
 
 
-def _decode_token(token: str) -> dict:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> UsuarioActual:
+    """Dependencia: valida el token contra Supabase y trae el perfil (rol, estado)."""
+    token = credentials.credentials
+
     try:
-        return jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-    except jwt.PyJWTError:
+        auth_response = supabase_admin.auth.get_user(token)
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido o expirado.",
         )
 
+    if not auth_response or not auth_response.user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado.",
+        )
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> UsuarioActual:
-    """Dependencia: valida el JWT y trae el perfil (rol, estado) desde profiles."""
-    payload = _decode_token(credentials.credentials)
-    user_id = payload.get("sub")
-
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token sin identificador de usuario.")
+    user_id = auth_response.user.id
 
     result = (
         supabase_admin.table("profiles")
@@ -74,7 +75,7 @@ async def get_current_user(
 
     return UsuarioActual(
         id=user_id,
-        email=payload.get("email"),
+        email=auth_response.user.email,
         rol=result.data["rol"],
         estado=result.data["estado"],
     )
