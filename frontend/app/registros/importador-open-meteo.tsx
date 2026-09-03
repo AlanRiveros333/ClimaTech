@@ -49,7 +49,8 @@ export default function ImportadorOpenMeteo({ onImportado }: { onImportado: () =
 
       setMensaje(`Importación completada: ${data.registros_procesados} registros procesados.`)
       onImportado()
-    } catch {
+    } catch (err) {
+      console.error('Error al importar desde Open-Meteo:', err)
       setError('No se pudo conectar con el servidor backend.')
     } finally {
       setImportando(false)
