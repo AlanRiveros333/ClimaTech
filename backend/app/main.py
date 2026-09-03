@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import get_current_user, requiere_admin, UsuarioActual
+from app.routers import registros
 
 app = FastAPI(title="ClimaTech API")
 
@@ -12,6 +13,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(registros.router)
 
 
 @app.get("/health")
