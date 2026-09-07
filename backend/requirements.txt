@@ -1,6 +1,9 @@
 fastapi
 uvicorn[standard]
 supabase
-pyjwt
 python-dotenv
 httpx
+pandas
+numpy
+scikit-learn
+statsmodels
