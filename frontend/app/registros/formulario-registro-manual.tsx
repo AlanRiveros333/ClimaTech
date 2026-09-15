@@ -147,7 +147,7 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
       <button
         type="submit"
         disabled={guardando}
-        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+        className="rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
       >
         {guardando ? 'Guardando...' : 'Guardar registro'}
       </button>
