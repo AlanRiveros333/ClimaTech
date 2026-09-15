@@ -20,6 +20,10 @@ router = APIRouter(prefix="/proyecciones", tags=["proyecciones"])
 VARIABLES_VALIDAS = {"temperatura", "humedad", "velocidad_viento"}
 METODOS_VALIDOS = {"promedio_movil", "holt", "regresion_lineal"}
 
+# Umbral orientativo: por debajo de esto, avisamos que el historial puede
+# ser insuficiente para una proyección confiable (no bloqueamos, solo avisamos).
+DIAS_MINIMOS_RECOMENDADOS = 14
+
 
 class GenerarProyeccionRequest(BaseModel):
     variable: str
@@ -75,7 +79,10 @@ def _proyectar_promedio_movil(df: pd.DataFrame, variable: str, dias_a_proyectar:
     ultimo_promedio = serie.tail(ventana).mean()
     ultima_fecha = df["fecha"].max()
     valores = [
-        {"fecha": (ultima_fecha + timedelta(days=i + 1)).date().isoformat(), "valor": round(float(ultimo_promedio), 4)}
+        {
+            "fecha": (ultima_fecha + timedelta(days=i + 1)).date().isoformat(),
+            "valor": round(float(ultimo_promedio), 4),
+        }
         for i in range(dias_a_proyectar)
     ]
     parametros = {"ventana": ventana}
@@ -94,7 +101,10 @@ def _proyectar_holt(df: pd.DataFrame, variable: str, dias_a_proyectar: int):
     pronostico = modelo.forecast(dias_a_proyectar)
     ultima_fecha = df["fecha"].max()
     valores = [
-        {"fecha": (ultima_fecha + timedelta(days=i + 1)).date().isoformat(), "valor": round(float(v), 4)}
+        {
+            "fecha": (ultima_fecha + timedelta(days=i + 1)).date().isoformat(),
+            "valor": round(float(v), 4),
+        }
         for i, v in enumerate(pronostico)
     ]
     parametros = {
@@ -111,12 +121,16 @@ def _proyectar_regresion_lineal(df: pd.DataFrame, variable: str, dias_a_proyecta
         )
 
     df = df.copy()
-    df["dia_ordinal"] = df["fecha"].map(lambda f: f.toordinal())
+    fecha_inicio = df["fecha"].min()
+    # Días relativos al inicio del histórico (no la fecha absoluta): mantiene los
+    # números pequeños y evita que el modelo quede numéricamente inestable al
+    # extrapolar, que era la causa de proyecciones absurdas (ej. -293°C).
+    df["dias_desde_inicio"] = (df["fecha"] - fecha_inicio).dt.days
     df["dia_anio"] = df["fecha"].dt.dayofyear
     df["sin_anio"] = np.sin(2 * np.pi * df["dia_anio"] / 365.25)
     df["cos_anio"] = np.cos(2 * np.pi * df["dia_anio"] / 365.25)
 
-    X = df[["dia_ordinal", "sin_anio", "cos_anio"]]
+    X = df[["dias_desde_inicio", "sin_anio", "cos_anio"]]
     y = df[variable]
 
     modelo = LinearRegression().fit(X, y)
@@ -129,13 +143,13 @@ def _proyectar_regresion_lineal(df: pd.DataFrame, variable: str, dias_a_proyecta
     fechas_futuras = [ultima_fecha + timedelta(days=i + 1) for i in range(dias_a_proyectar)]
     X_futuro = pd.DataFrame(
         {
-            "dia_ordinal": [f.toordinal() for f in fechas_futuras],
+            "dias_desde_inicio": [(f - fecha_inicio).days for f in fechas_futuras],
             "dia_anio": [f.dayofyear for f in fechas_futuras],
         }
     )
     X_futuro["sin_anio"] = np.sin(2 * np.pi * X_futuro["dia_anio"] / 365.25)
     X_futuro["cos_anio"] = np.cos(2 * np.pi * X_futuro["dia_anio"] / 365.25)
-    predicciones = modelo.predict(X_futuro[["dia_ordinal", "sin_anio", "cos_anio"]])
+    predicciones = modelo.predict(X_futuro[["dias_desde_inicio", "sin_anio", "cos_anio"]])
 
     valores = [
         {"fecha": f.date().isoformat(), "valor": round(float(v), 4)}
@@ -143,7 +157,7 @@ def _proyectar_regresion_lineal(df: pd.DataFrame, variable: str, dias_a_proyecta
     ]
     parametros = {
         "coeficientes": {
-            "dia_ordinal": round(float(modelo.coef_[0]), 6),
+            "dias_desde_inicio": round(float(modelo.coef_[0]), 6),
             "sin_anio": round(float(modelo.coef_[1]), 4),
             "cos_anio": round(float(modelo.coef_[2]), 4),
         },
@@ -165,6 +179,21 @@ async def generar_proyeccion(
         raise HTTPException(status_code=400, detail="dias_a_proyectar debe estar entre 1 y 30.")
 
     df = _cargar_serie(datos.variable, datos.periodo_inicio, datos.periodo_fin)
+
+    dias_historicos = len(df)
+    advertencia = None
+    if dias_historicos < DIAS_MINIMOS_RECOMENDADOS:
+        advertencia = (
+            f"Se usaron solo {dias_historicos} día(s) de historial. Se recomiendan al menos "
+            f"{DIAS_MINIMOS_RECOMENDADOS} días para que la proyección sea estadísticamente confiable; "
+            "con pocos datos, el método puede generar valores poco realistas, sobre todo la regresión lineal."
+        )
+    elif datos.dias_a_proyectar > dias_historicos:
+        advertencia = (
+            f"Estás proyectando {datos.dias_a_proyectar} días a partir de solo {dias_historicos} días de "
+            "historial. Cuanto más largo el horizonte de proyección respecto al historial disponible, menos "
+            "confiable es el resultado."
+        )
 
     if datos.metodo == "promedio_movil":
         valores, parametros, metricas, r2 = _proyectar_promedio_movil(df, datos.variable, datos.dias_a_proyectar)
@@ -203,6 +232,7 @@ async def generar_proyeccion(
         "metodo": datos.metodo,
         "parametros": parametros,
         "metricas": {**metricas, "r2": r2},
+        "advertencia": advertencia,
         "historico": [
             {"fecha": f.date().isoformat(), "valor": round(float(v), 4)}
             for f, v in zip(df["fecha"], df[datos.variable])
