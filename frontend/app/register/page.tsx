@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, CloudSun } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function RegisterPage() {
@@ -36,10 +36,11 @@ export default function RegisterPage() {
     setCargando(false)
 
     if (error) {
+      console.error('Error de registro (Supabase):', error)
       setError(
         error.message.includes('already registered')
           ? 'Ese correo ya está registrado.'
-          : 'No se pudo completar el registro. Intenta de nuevo.'
+          : `No se pudo completar el registro: ${error.message}`
       )
       return
     }
@@ -49,10 +50,15 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-2xl font-semibold text-slate-900">Crear cuenta</h1>
-        <p className="mb-6 text-sm text-slate-500">Regístrate como usuario estándar</p>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF] px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-white/20 bg-white/95 p-8 shadow-2xl backdrop-blur">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#01BAEF]/10">
+            <CloudSun size={26} color="#0B4F6C" />
+          </div>
+          <h1 className="text-2xl font-semibold text-slate-900">Crear cuenta</h1>
+          <p className="mt-1 text-sm text-slate-500">Regístrate como usuario estándar</p>
+        </div>
 
         {exito ? (
           <p className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
@@ -70,7 +76,7 @@ export default function RegisterPage() {
                 required
                 value={nombreCompleto}
                 onChange={(e) => setNombreCompleto(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-[#0E7C9B] focus:outline-none focus:ring-1 focus:ring-[#0E7C9B]"
               />
             </div>
 
@@ -84,7 +90,7 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-[#0E7C9B] focus:outline-none focus:ring-1 focus:ring-[#0E7C9B]"
               />
             </div>
 
@@ -100,7 +106,7 @@ export default function RegisterPage() {
                   minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:border-[#0E7C9B] focus:outline-none focus:ring-1 focus:ring-[#0E7C9B]"
                 />
                 <button
                   type="button"
@@ -122,7 +128,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={cargando}
-              className="w-full rounded-lg bg-slate-900 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+              className="w-full rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#01BAEF] py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
             >
               {cargando ? 'Creando cuenta...' : 'Crear cuenta'}
             </button>
@@ -131,7 +137,7 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-slate-500">
           ¿Ya tienes cuenta?{' '}
-          <Link href="/login" className="font-medium text-slate-900 underline">
+          <Link href="/login" className="font-medium text-[#0B4F6C] underline">
             Inicia sesión
           </Link>
         </p>
