@@ -1,107 +1,100 @@
-'use client'
-
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Eye, EyeOff } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { ClipboardList, TrendingUp, FileText, CloudSun } from 'lucide-react'
+import { getCurrentProfile } from '@/lib/supabase/server'
+import NavBar from '@/components/nav-bar'
 
-export default function LoginPage() {
-  const router = useRouter()
-  const supabase = createClient()
+const MODULOS = [
+  {
+    href: '/registros',
+    titulo: 'Registros climáticos',
+    descripcion: 'Registra datos manualmente o impórtalos desde Open-Meteo.',
+    Icono: ClipboardList,
+    color: '#0E7C9B',
+  },
+  {
+    href: '/proyecciones',
+    titulo: 'Proyección estadística',
+    descripcion: 'Genera y compara promedio móvil, Holt y regresión lineal múltiple.',
+    Icono: TrendingUp,
+    color: '#F59E0B',
+  },
+  {
+    href: '/reportes',
+    titulo: 'Reportes',
+    descripcion: 'Exporta un PDF con el resumen histórico y las proyecciones.',
+    Icono: FileText,
+    color: '#5C6BC0',
+  },
+]
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [mostrarPassword, setMostrarPassword] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [cargando, setCargando] = useState(false)
+export default async function DashboardPage() {
+  const profile = await getCurrentProfile()
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setCargando(true)
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    setCargando(false)
-
-    if (error) {
-      setError('Correo o contraseña incorrectos.')
-      return
-    }
-
-    router.push('/dashboard')
-    router.refresh()
+  if (!profile) {
+    redirect('/login')
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-2xl font-semibold text-slate-900">Iniciar sesión</h1>
-        <p className="mb-6 text-sm text-slate-500">
-          Sistema de monitoreo y proyección climática
-        </p>
+  const fechaHoy = new Date().toLocaleDateString('es-BO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
-              Correo electrónico
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-            />
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
+      <NavBar />
+
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <div className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF] p-6 text-white shadow-lg sm:p-8">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm capitalize text-white/80">{fechaHoy}</p>
+              <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">
+                Hola, {profile.nombre_completo}
+              </h1>
+              <p className="mt-1 text-sm text-white/80">Cochabamba, Bolivia</p>
+            </div>
+            <CloudSun size={48} className="shrink-0 text-white/90" />
           </div>
 
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
-              Contraseña
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                type={mostrarPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-              />
-              <button
-                type="button"
-                onClick={() => setMostrarPassword((v) => !v)}
-                aria-label={mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                {mostrarPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
+          <div className="mt-6 flex gap-6 border-t border-white/20 pt-4 text-sm">
+            <div>
+              <span className="text-white/70">Rol: </span>
+              <span className="font-medium">{profile.rol}</span>
+            </div>
+            <div>
+              <span className="text-white/70">Estado: </span>
+              <span className="font-medium">{profile.estado}</span>
             </div>
           </div>
+        </div>
 
-          {error && (
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={cargando}
-            className="w-full rounded-lg bg-slate-900 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
-          >
-            {cargando ? 'Ingresando...' : 'Ingresar'}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-slate-500">
-          ¿No tienes cuenta?{' '}
-          <Link href="/register" className="font-medium text-slate-900 underline">
-            Regístrate
-          </Link>
-        </p>
+        <h2 className="mb-4 text-sm font-semibold text-slate-500">Módulos del sistema</h2>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {MODULOS.map((modulo) => (
+            <Link
+              key={modulo.href}
+              href={modulo.href}
+              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div
+                className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl"
+                style={{ backgroundColor: `${modulo.color}1a` }}
+              >
+                <modulo.Icono size={22} color={modulo.color} />
+              </div>
+              <h3 className="font-semibold text-slate-900">{modulo.titulo}</h3>
+              <p className="mt-1 text-sm text-slate-500">{modulo.descripcion}</p>
+              <span
+                className="mt-3 inline-block text-sm font-medium transition group-hover:underline"
+                style={{ color: modulo.color }}
+              >
+                Ir al módulo
+              </span>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   )
