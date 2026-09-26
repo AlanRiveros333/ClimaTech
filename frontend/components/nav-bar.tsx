@@ -49,6 +49,8 @@ export default function NavBar() {
     router.refresh()
   }
 
+  const enlaces = rol === 'administrador' ? [...ENLACES, { href: '/usuarios', label: 'Usuarios' }] : ENLACES
+
   return (
     <header className="bg-gradient-to-r from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF]">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
@@ -58,7 +60,7 @@ export default function NavBar() {
             ClimaTech
           </span>
           <nav className="flex gap-1">
-            {ENLACES.map((enlace) => {
+            {enlaces.map((enlace) => {
               const activo = pathname?.startsWith(enlace.href)
               return (
                 <Link
