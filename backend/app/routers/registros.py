@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
-from app.auth import get_current_user, supabase_admin, UsuarioActual
+from app.auth import get_current_user, requiere_admin, supabase_admin, UsuarioActual
 
 router = APIRouter(prefix="/registros", tags=["registros"])
 
@@ -195,3 +195,84 @@ async def listar_registros(
         .execute()
     )
     return resultado.data
+
+
+class EditarRegistroRequest(BaseModel):
+    fecha: date | None = None
+    hora: str | None = None
+    temperatura: float | None = None
+    humedad: float | None = None
+    velocidad_viento: float | None = None
+
+    @field_validator("humedad")
+    @classmethod
+    def humedad_en_rango(cls, v):
+        if v is not None and not (0 <= v <= 100):
+            raise ValueError("La humedad debe estar entre 0 y 100")
+        return v
+
+    @field_validator("velocidad_viento")
+    @classmethod
+    def viento_no_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("La velocidad del viento no puede ser negativa")
+        return v
+
+
+@router.patch("/{registro_id}")
+async def editar_registro(
+    registro_id: str,
+    datos: EditarRegistroRequest,
+    usuario: UsuarioActual = Depends(requiere_admin),
+):
+    """Edita un registro climático existente (solo administrador, RF-07)."""
+    cambios = {k: v for k, v in datos.model_dump().items() if v is not None}
+    if "fecha" in cambios:
+        cambios["fecha"] = cambios["fecha"].isoformat()
+
+    if not cambios:
+        raise HTTPException(status_code=400, detail="No se envió ningún cambio.")
+
+    resultado = (
+        supabase_admin.table("registros_climaticos").update(cambios).eq("id", registro_id).execute()
+    )
+
+    if not resultado.data:
+        raise HTTPException(status_code=404, detail="Registro no encontrado.")
+
+    supabase_admin.table("auditoria").insert(
+        {
+            "usuario_id": usuario.id,
+            "accion": "editar_registro",
+            "tabla_afectada": "registros_climaticos",
+            "registro_id": registro_id,
+            "detalle": cambios,
+        }
+    ).execute()
+
+    return {"mensaje": "Registro actualizado correctamente.", "registro": resultado.data[0]}
+
+
+@router.delete("/{registro_id}")
+async def eliminar_registro(
+    registro_id: str,
+    usuario: UsuarioActual = Depends(requiere_admin),
+):
+    """Elimina un registro climático (solo administrador, RF-07)."""
+    resultado = (
+        supabase_admin.table("registros_climaticos").delete().eq("id", registro_id).execute()
+    )
+
+    if not resultado.data:
+        raise HTTPException(status_code=404, detail="Registro no encontrado.")
+
+    supabase_admin.table("auditoria").insert(
+        {
+            "usuario_id": usuario.id,
+            "accion": "eliminar_registro",
+            "tabla_afectada": "registros_climaticos",
+            "registro_id": registro_id,
+        }
+    ).execute()
+
+    return {"mensaje": "Registro eliminado correctamente."}
