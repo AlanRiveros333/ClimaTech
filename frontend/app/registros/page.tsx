@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Thermometer } from 'lucide-react'
+import { Thermometer, Pencil, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import NavBar from '@/components/nav-bar'
 import FormularioRegistroManual from './formulario-registro-manual'
 import ImportadorOpenMeteo from './importador-open-meteo'
+import EditarRegistroModal from './editar-registro-modal'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type Registro = {
   id: string
@@ -21,6 +24,11 @@ export default function RegistrosPage() {
   const supabase = createClient()
   const [registros, setRegistros] = useState<Registro[]>([])
   const [cargando, setCargando] = useState(true)
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [registroEditando, setRegistroEditando] = useState<Registro | null>(null)
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const cargarRegistros = useCallback(async () => {
     setCargando(true)
@@ -38,6 +46,54 @@ export default function RegistrosPage() {
   useEffect(() => {
     cargarRegistros()
   }, [cargarRegistros])
+
+  useEffect(() => {
+    async function cargarPerfil() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session) return
+      setAccessToken(session.access_token)
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('rol')
+        .eq('id', session.user.id)
+        .single()
+
+      setEsAdmin(profile?.rol === 'administrador')
+    }
+    cargarPerfil()
+  }, [supabase])
+
+  async function handleEliminar(id: string) {
+    if (!accessToken) return
+    if (!window.confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) return
+
+    setEliminandoId(id)
+    setError(null)
+
+    try {
+      const res = await fetch(`${API_URL}/registros/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.detail || 'No se pudo eliminar el registro.')
+        setEliminandoId(null)
+        return
+      }
+
+      await cargarRegistros()
+    } catch {
+      setError('No se pudo conectar con el servidor backend.')
+    } finally {
+      setEliminandoId(null)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
@@ -60,6 +116,12 @@ export default function RegistrosPage() {
           <ImportadorOpenMeteo onImportado={cargarRegistros} />
         </div>
 
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
+
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Últimos registros</h2>
 
@@ -78,6 +140,7 @@ export default function RegistrosPage() {
                     <th className="py-2 pr-4">Humedad (%)</th>
                     <th className="py-2 pr-4">Viento (km/h)</th>
                     <th className="py-2 pr-4">Fuente</th>
+                    {esAdmin && <th className="py-2 pr-4">Acciones</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -99,6 +162,27 @@ export default function RegistrosPage() {
                           {r.fuente === 'manual' ? 'Manual' : 'Open-Meteo'}
                         </span>
                       </td>
+                      {esAdmin && (
+                        <td className="py-2 pr-4">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setRegistroEditando(r)}
+                              aria-label="Editar registro"
+                              className="text-slate-400 hover:text-[#0E7C9B]"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleEliminar(r.id)}
+                              disabled={eliminandoId === r.id}
+                              aria-label="Eliminar registro"
+                              className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -107,6 +191,18 @@ export default function RegistrosPage() {
           )}
         </div>
       </div>
+
+      {registroEditando && accessToken && (
+        <EditarRegistroModal
+          registro={registroEditando}
+          accessToken={accessToken}
+          onCerrar={() => setRegistroEditando(null)}
+          onGuardado={() => {
+            setRegistroEditando(null)
+            cargarRegistros()
+          }}
+        />
+      )}
     </div>
   )
 }
