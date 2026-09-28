@@ -23,6 +23,16 @@ export default function ReportesPage() {
   const [periodoFin, setPeriodoFin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [generando, setGenerando] = useState(false)
+
+  // Fecha máxima seleccionable (hoy, en hora LOCAL). Se calcula tras montar el
+  // componente para que servidor y cliente rendericen lo mismo (evita el warning
+  // de hidratación) y para no usar UTC, que adelanta el día por las noches.
+  const [hoy, setHoy] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    const ahora = new Date()
+    const local = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000)
+    setHoy(local.toISOString().split('T')[0])
+  }, [])
   const [reportes, setReportes] = useState<Reporte[]>([])
   const [cargandoLista, setCargandoLista] = useState(true)
 
@@ -109,7 +119,7 @@ export default function ReportesPage() {
             <input
               type="date"
               required
-              max={new Date().toISOString().split('T')[0]}
+              max={hoy}
               value={periodoInicio}
               onChange={(e) => setPeriodoInicio(e.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
@@ -120,7 +130,7 @@ export default function ReportesPage() {
             <input
               type="date"
               required
-              max={new Date().toISOString().split('T')[0]}
+              max={hoy}
               value={periodoFin}
               onChange={(e) => setPeriodoFin(e.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"

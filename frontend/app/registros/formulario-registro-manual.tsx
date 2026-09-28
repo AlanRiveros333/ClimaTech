@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function FormularioRegistroManual({ onGuardado }: { onGuardado: () => void }) {
@@ -14,6 +14,16 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
   const [error, setError] = useState<string | null>(null)
   const [exito, setExito] = useState(false)
   const [guardando, setGuardando] = useState(false)
+
+  // Fecha máxima seleccionable (hoy, en hora LOCAL). Se calcula tras montar el
+  // componente para que servidor y cliente rendericen lo mismo (evita el warning
+  // de hidratación) y para no usar UTC, que adelanta el día por las noches.
+  const [hoy, setHoy] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    const ahora = new Date()
+    const local = new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000)
+    setHoy(local.toISOString().split('T')[0])
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -71,7 +81,7 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
             id="fecha"
             type="date"
             required
-            max={new Date().toISOString().split('T')[0]}
+            max={hoy}
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
