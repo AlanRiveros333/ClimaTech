@@ -1,26 +1,250 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ------------------------------------------------------------------
+   ClimaTech — sistema de diseño
+   Dirección: herramienta de trabajo (Operate). Neutros fríos con tinte
+   verde-azulado, UN solo acento (azul petróleo) y colores semánticos
+   solo para estados y para las 3 variables climáticas.
+------------------------------------------------------------------- */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  /* Superficies y texto (una sola familia de grises, tintada) */
+  --color-canvas: #f2f6f7;
+  --color-surface: #ffffff;
+  --color-line: #dde5e8;
+  --color-line-strong: #c3d0d5;
+  --color-ink: #11262e;
+  --color-ink-2: #44606b;
+  --color-ink-3: #5b727c;
+
+  /* Acento único */
+  --color-accent: #0b6a86;
+  --color-accent-strong: #084d63;
+  --color-accent-soft: #e2f0f4;
+  --color-deep: #0c3b4c;
+  --color-deep-ink: #a9c7d2;
+
+  /* Estados */
+  --color-danger: #b42318;
+  --color-danger-soft: #fdeeed;
+  --color-success: #12714a;
+  --color-success-soft: #e6f4ec;
+  --color-warn: #8f5200;
+  --color-warn-soft: #fff3df;
+
+  /* Variables climáticas (solo datos) */
+  --color-temp: #c2570c;
+  --color-humid: #1f5fbf;
+  --color-wind: #0f766e;
+
+  /* Movimiento */
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Sombras con el tinte del fondo, una sola fuente de luz (arriba) */
+  --shadow-card: 0 1px 2px rgb(12 59 76 / 0.05), 0 6px 16px -10px rgb(12 59 76 / 0.12);
+  --shadow-pop: 0 2px 4px rgb(12 59 76 / 0.06), 0 24px 48px -16px rgb(12 59 76 / 0.28);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Superficies del navegador que también llevan el diseño */
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 24%, white);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  input,
+  select,
+  button {
+    font: inherit;
+  }
+
+  input[type="date"],
+  input[type="time"],
+  input[type="number"] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Contenedor de página: mismo ancho que la barra de navegación */
+  .page {
+    @apply mx-auto w-full max-w-5xl px-4 sm:px-6;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem];
+  }
+
+  .page-sub {
+    @apply mt-1 max-w-[65ch] text-sm leading-relaxed text-ink-2;
+  }
+
+  /* Contenedor de contenido (solo cuando la elevación comunica jerarquía) */
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+
+  .card-title {
+    @apply text-base font-semibold tracking-tight text-ink;
+  }
+
+  /* Formularios */
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink transition-[border-color,box-shadow] duration-150 ease-out-strong placeholder:text-ink-3 hover:border-ink-3 focus:border-accent focus:outline-none;
+    min-height: 2.5rem;
+  }
+
+  .field:focus {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 22%, transparent);
+  }
+
+  /* Botones */
+  .btn {
+    @apply inline-flex min-h-10 select-none items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-[background-color,border-color,color,transform] duration-150 ease-out-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-accent-strong;
+  }
+
+  .btn-secondary {
+    @apply border border-line-strong bg-surface text-ink hover:bg-canvas;
+  }
+
+  .btn-ghost {
+    @apply text-ink-2 hover:bg-canvas hover:text-ink;
+  }
+
+  .btn-icon {
+    @apply inline-flex size-9 items-center justify-center rounded-lg text-ink-3 transition-[background-color,color,transform] duration-150 ease-out-strong hover:bg-canvas hover:text-ink active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Mensajes en línea (nunca window.alert) */
+  .alert {
+    @apply flex items-start gap-2.5 rounded-lg px-3.5 py-3 text-sm leading-relaxed;
+  }
+
+  .alert-error {
+    @apply bg-danger-soft text-danger;
+  }
+
+  .alert-success {
+    @apply bg-success-soft text-success;
+  }
+
+  .alert-warn {
+    @apply bg-warn-soft text-warn;
+  }
+
+  /* Etiquetas pequeñas (rectangulares, no píldoras) */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+
+  /* Carga: esqueletos con la forma del contenido */
+  .skeleton {
+    @apply animate-pulse rounded-md bg-line;
+  }
+
+  /* Movimiento puntual: modal y resultados */
+  .modal-overlay {
+    animation: fade-in 160ms var(--ease-out-strong);
+  }
+
+  .modal-panel {
+    animation: modal-in 200ms var(--ease-out-strong);
+  }
+
+  .reveal {
+    animation: reveal 220ms var(--ease-out-strong);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

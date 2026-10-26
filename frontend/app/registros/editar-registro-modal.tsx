@@ -70,92 +70,119 @@ export default function EditarRegistroModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Editar registro</h2>
-          <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600">
-            <X size={20} />
+    <div className="modal-overlay fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="titulo-editar-registro"
+        className="modal-panel w-full max-w-md rounded-2xl bg-surface p-6 shadow-pop"
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 id="titulo-editar-registro" className="text-lg font-semibold tracking-tight text-ink">
+              Editar registro
+            </h2>
+            <p className="mt-0.5 text-sm text-ink-2">
+              Los cambios quedan guardados en la auditoría.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="btn-icon -mr-2 -mt-1"
+          >
+            <X size={20} strokeWidth={1.75} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Fecha</label>
+              <label htmlFor="edit-fecha" className="field-label">
+                Fecha
+              </label>
               <input
+                id="edit-fecha"
                 type="date"
                 required
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                className="field"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Hora</label>
+              <label htmlFor="edit-hora" className="field-label">
+                Hora
+              </label>
               <input
+                id="edit-hora"
                 type="time"
                 required
                 value={hora}
                 onChange={(e) => setHora(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                className="field"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Temperatura (°C)</label>
+            <label htmlFor="edit-temperatura" className="field-label">
+              Temperatura (°C)
+            </label>
             <input
+              id="edit-temperatura"
               type="number"
               step="0.1"
+              inputMode="decimal"
               value={temperatura}
               onChange={(e) => setTemperatura(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="field"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Humedad (%)</label>
+            <label htmlFor="edit-humedad" className="field-label">
+              Humedad (%)
+            </label>
             <input
+              id="edit-humedad"
               type="number"
               step="0.1"
               min="0"
               max="100"
+              inputMode="decimal"
               value={humedad}
               onChange={(e) => setHumedad(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="field"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Viento (km/h)</label>
+            <label htmlFor="edit-viento" className="field-label">
+              Viento (km/h)
+            </label>
             <input
+              id="edit-viento"
               type="number"
               step="0.1"
               min="0"
+              inputMode="decimal"
               value={velocidadViento}
               onChange={(e) => setVelocidadViento(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="field"
             />
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="alert alert-error">
               {error}
             </p>
           )}
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onCerrar}
-              className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onCerrar} className="btn btn-secondary flex-1">
               Cancelar
             </button>
-            <button
-              type="submit"
-              disabled={guardando}
-              className="flex-1 rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-            >
+            <button type="submit" disabled={guardando} className="btn btn-primary flex-1">
               {guardando ? 'Guardando...' : 'Guardar cambios'}
             </button>
           </div>
