@@ -66,15 +66,15 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-    >
-      <h2 className="text-lg font-semibold text-slate-900">Registro manual</h2>
+    <form onSubmit={handleSubmit} className="card flex flex-col p-6">
+      <div>
+        <h2 className="card-title">Registro manual</h2>
+        <p className="mt-1 text-sm text-ink-2">Ingresa una lectura puntual con su fecha y hora.</p>
+      </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="mt-5 grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="fecha" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="fecha" className="field-label">
             Fecha
           </label>
           <input
@@ -84,11 +84,11 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
             max={hoy}
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="field"
           />
         </div>
         <div>
-          <label htmlFor="hora" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="hora" className="field-label">
             Hora
           </label>
           <input
@@ -97,27 +97,28 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
             required
             value={hora}
             onChange={(e) => setHora(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="field"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
-          <label htmlFor="temperatura" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="temperatura" className="field-label">
             Temperatura (°C)
           </label>
           <input
             id="temperatura"
             type="number"
             step="0.1"
+            inputMode="decimal"
             value={temperatura}
             onChange={(e) => setTemperatura(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="field"
           />
         </div>
         <div>
-          <label htmlFor="humedad" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="humedad" className="field-label">
             Humedad (%)
           </label>
           <input
@@ -126,13 +127,14 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
             step="0.1"
             min="0"
             max="100"
+            inputMode="decimal"
             value={humedad}
             onChange={(e) => setHumedad(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="field"
           />
         </div>
         <div>
-          <label htmlFor="viento" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="viento" className="field-label">
             Viento (km/h)
           </label>
           <input
@@ -140,27 +142,30 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
             type="number"
             step="0.1"
             min="0"
+            inputMode="decimal"
             value={velocidadViento}
             onChange={(e) => setVelocidadViento(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="field"
           />
         </div>
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="alert alert-error mt-4">
           {error}
         </p>
       )}
-      {exito && <p className="text-sm text-green-600">Registro guardado correctamente.</p>}
+      {exito && (
+        <p role="status" className="alert alert-success mt-4">
+          Registro guardado correctamente.
+        </p>
+      )}
 
-      <button
-        type="submit"
-        disabled={guardando}
-        className="rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-      >
-        {guardando ? 'Guardando...' : 'Guardar registro'}
-      </button>
+      <div className="mt-auto pt-6">
+        <button type="submit" disabled={guardando} className="btn btn-primary">
+          {guardando ? 'Guardando...' : 'Guardar registro'}
+        </button>
+      </div>
     </form>
   )
 }

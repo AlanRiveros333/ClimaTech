@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { CloudSun } from 'lucide-react'
+import { CloudSun, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const ENLACES = [
@@ -52,24 +52,34 @@ export default function NavBar() {
   const enlaces = rol === 'administrador' ? [...ENLACES, { href: '/usuarios', label: 'Usuarios' }] : ENLACES
 
   return (
-    <header className="bg-gradient-to-r from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF]">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-6">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-white">
-            <CloudSun size={18} />
+    <header className="sticky top-0 z-40 border-b border-line bg-surface">
+      <div className="page flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-2.5">
+        <div className="flex items-center gap-8">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2.5 text-[0.95rem] font-semibold tracking-tight text-ink"
+          >
+            <span className="grid size-8 place-items-center rounded-lg bg-accent text-white">
+              <CloudSun size={18} strokeWidth={1.75} />
+            </span>
             ClimaTech
-          </span>
-          <nav className="flex gap-1">
+          </Link>
+
+          <nav
+            aria-label="Principal"
+            className="order-last -mx-1 flex w-full gap-0.5 overflow-x-auto pb-1 sm:order-none sm:mx-0 sm:w-auto sm:pb-0"
+          >
             {enlaces.map((enlace) => {
               const activo = pathname?.startsWith(enlace.href)
               return (
                 <Link
                   key={enlace.href}
                   href={enlace.href}
-                  className={`rounded-full px-3 py-1.5 text-sm transition ${
+                  aria-current={activo ? 'page' : undefined}
+                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm transition-colors duration-150 ${
                     activo
-                      ? 'bg-white/90 text-[#0B4F6C] font-medium'
-                      : 'text-white/80 hover:bg-white/10 hover:text-white'
+                      ? 'bg-accent-soft font-medium text-accent-strong'
+                      : 'text-ink-2 hover:bg-canvas hover:text-ink'
                   }`}
                 >
                   {enlace.label}
@@ -79,12 +89,12 @@ export default function NavBar() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {nombre && (
-            <span className="text-sm text-white/90">
+            <span className="hidden items-center gap-2 text-sm text-ink-2 md:flex">
               {nombre}
               {rol && (
-                <span className="ml-2 rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">
+                <span className="badge bg-canvas text-ink-2">
                   {rol === 'administrador' ? 'Admin' : 'Usuario'}
                 </span>
               )}
@@ -92,9 +102,11 @@ export default function NavBar() {
           )}
           <button
             onClick={handleLogout}
-            className="rounded-full border border-white/30 px-3 py-1.5 text-sm text-white transition hover:bg-white/10"
+            aria-label="Cerrar sesión"
+            className="btn btn-ghost min-h-9 px-3"
           >
-            Cerrar sesión
+            <LogOut size={16} strokeWidth={1.75} />
+            <span className="hidden sm:inline">Cerrar sesión</span>
           </button>
         </div>
       </div>

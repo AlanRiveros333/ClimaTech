@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import NavBar from '@/components/nav-bar'
+import PageHeader from '@/components/page-header'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -107,82 +107,108 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
+    <div className="min-h-dvh">
       <NavBar />
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0B4F6C]/10">
-            <Users size={22} color="#0B4F6C" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Gestión de usuarios</h1>
-            <p className="text-sm text-slate-500">Cambia roles y activa o desactiva cuentas</p>
-          </div>
-        </div>
+      <main id="contenido" className="page space-y-6 py-8 sm:py-10">
+        <PageHeader
+          titulo="Gestión de usuarios"
+          descripcion="Cambia roles y activa o desactiva cuentas."
+        />
 
         {error && (
-          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+          <p role="alert" className="alert alert-error">
             {error}
           </p>
         )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="card overflow-hidden">
           {cargando ? (
-            <p className="text-sm text-slate-400">Cargando...</p>
+            <div className="divide-y divide-line" aria-busy="true">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-6 px-6 py-4">
+                  <div className="skeleton h-5 w-40" />
+                  <div className="skeleton hidden h-5 w-56 sm:block" />
+                  <div className="skeleton ml-auto h-9 w-36" />
+                </div>
+              ))}
+            </div>
           ) : usuarios.length === 0 ? (
-            <p className="text-sm text-slate-400">No hay usuarios registrados.</p>
+            <div className="px-6 py-14 text-center">
+              <p className="font-medium text-ink">No hay usuarios registrados</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-ink-2">
+                Las cuentas aparecerán aquí cuando las personas se registren desde la pantalla de
+                inicio.
+              </p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="py-2 pr-4">Nombre</th>
-                    <th className="py-2 pr-4">Email</th>
-                    <th className="py-2 pr-4">Rol</th>
-                    <th className="py-2 pr-4">Estado</th>
+                  <tr className="bg-canvas text-xs font-medium text-ink-2">
+                    <th scope="col" className="px-6 py-2.5">
+                      Nombre
+                    </th>
+                    <th scope="col" className="px-3 py-2.5">
+                      Email
+                    </th>
+                    <th scope="col" className="px-3 py-2.5">
+                      Rol
+                    </th>
+                    <th scope="col" className="px-6 py-2.5">
+                      Estado
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-line">
                   {usuarios.map((u) => {
                     const esUnoMismo = u.id === miId
                     const actualizando = actualizandoId === u.id
+                    const activo = u.estado === 'activo'
                     return (
-                      <tr key={u.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-2 pr-4">
+                      <tr
+                        key={u.id}
+                        className="text-ink transition-colors duration-150 hover:bg-canvas/70"
+                      >
+                        <td className="px-6 py-3 font-medium">
                           {u.nombre_completo}
                           {esUnoMismo && (
-                            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                              Tú
-                            </span>
+                            <span className="badge ml-2 bg-canvas text-ink-2">Tú</span>
                           )}
                         </td>
-                        <td className="py-2 pr-4 text-slate-500">{u.email}</td>
-                        <td className="py-2 pr-4">
+                        <td className="px-3 py-3 text-ink-2">{u.email}</td>
+                        <td className="px-3 py-3">
                           <select
+                            aria-label={`Rol de ${u.nombre_completo}`}
                             value={u.rol}
                             disabled={esUnoMismo || actualizando}
                             onChange={(e) => actualizar(u.id, { rol: e.target.value })}
-                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="field w-auto py-1.5 disabled:cursor-not-allowed disabled:bg-canvas disabled:opacity-60"
                           >
                             <option value="usuario_estandar">Usuario estándar</option>
                             <option value="administrador">Administrador</option>
                           </select>
                         </td>
-                        <td className="py-2 pr-4">
+                        <td className="px-6 py-3">
                           <button
+                            type="button"
                             disabled={esUnoMismo || actualizando}
+                            aria-label={`${activo ? 'Desactivar' : 'Activar'} cuenta de ${u.nombre_completo}`}
                             onClick={() =>
                               actualizar(u.id, {
-                                estado: u.estado === 'activo' ? 'inactivo' : 'activo',
+                                estado: activo ? 'inactivo' : 'activo',
                               })
                             }
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                              u.estado === 'activo'
-                                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            className={`badge min-h-8 gap-2 px-3 transition-[background-color,transform] duration-150 ease-out-strong active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 ${
+                              activo
+                                ? 'bg-success-soft text-success hover:bg-success-soft/70'
+                                : 'bg-canvas text-ink-2 hover:bg-line'
                             }`}
                           >
-                            {u.estado === 'activo' ? 'Activo' : 'Inactivo'}
+                            <span
+                              aria-hidden="true"
+                              className={`size-1.5 rounded-full ${activo ? 'bg-success' : 'bg-ink-3'}`}
+                            />
+                            {activo ? 'Activo' : 'Inactivo'}
                           </button>
                         </td>
                       </tr>
@@ -192,11 +218,12 @@ export default function UsuariosPage() {
               </table>
             </div>
           )}
-        </div>
-        <p className="text-xs text-slate-400">
+        </section>
+
+        <p className="text-xs text-ink-3">
           No puedes cambiar tu propio rol o estado desde aquí, por seguridad.
         </p>
-      </div>
+      </main>
     </div>
   )
 }

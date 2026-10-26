@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Thermometer, Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import NavBar from '@/components/nav-bar'
+import PageHeader from '@/components/page-header'
 import FormularioRegistroManual from './formulario-registro-manual'
 import ImportadorOpenMeteo from './importador-open-meteo'
 import EditarRegistroModal from './editar-registro-modal'
@@ -95,102 +96,139 @@ export default function RegistrosPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
-      <NavBar />
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0E7C9B]/10">
-            <Thermometer size={22} color="#0E7C9B" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Registros climáticos</h1>
-            <p className="text-sm text-slate-500">
-              Temperatura, humedad y velocidad del viento — Cochabamba
-            </p>
-          </div>
-        </div>
+  const columnas = esAdmin ? 7 : 6
 
-        <div className="grid gap-6 md:grid-cols-2">
+  return (
+    <div className="min-h-dvh">
+      <NavBar />
+      <main id="contenido" className="page space-y-8 py-8 sm:py-10">
+        <PageHeader
+          titulo="Registros climáticos"
+          descripcion="Temperatura, humedad y velocidad del viento de Cochabamba. Registra lecturas a mano o impórtalas desde Open-Meteo."
+        />
+
+        <div className="grid gap-6 lg:grid-cols-2">
           <FormularioRegistroManual onGuardado={cargarRegistros} />
           <ImportadorOpenMeteo onImportado={cargarRegistros} />
         </div>
 
         {error && (
-          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+          <p role="alert" className="alert alert-error">
             {error}
           </p>
         )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-slate-900">Últimos registros</h2>
+        <section aria-labelledby="titulo-ultimos" className="card overflow-hidden">
+          <div className="flex items-baseline justify-between gap-4 px-6 pb-4 pt-5">
+            <h2 id="titulo-ultimos" className="card-title">
+              Últimos registros
+            </h2>
+            {!cargando && registros.length > 0 && (
+              <p className="text-xs text-ink-3">Se muestran los 20 más recientes</p>
+            )}
+          </div>
 
-          {cargando ? (
-            <p className="text-sm text-slate-400">Cargando...</p>
-          ) : registros.length === 0 ? (
-            <p className="text-sm text-slate-400">Todavía no hay registros.</p>
+          {!cargando && registros.length === 0 ? (
+            <div className="border-t border-line px-6 py-14 text-center">
+              <p className="font-medium text-ink">Todavía no hay registros</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-ink-2">
+                Importa un rango de fechas desde Open-Meteo o guarda una lectura manual para
+                empezar a trabajar con los datos.
+              </p>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto border-t border-line">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="py-2 pr-4">Fecha</th>
-                    <th className="py-2 pr-4">Hora</th>
-                    <th className="py-2 pr-4">Temp. (°C)</th>
-                    <th className="py-2 pr-4">Humedad (%)</th>
-                    <th className="py-2 pr-4">Viento (km/h)</th>
-                    <th className="py-2 pr-4">Fuente</th>
-                    {esAdmin && <th className="py-2 pr-4">Acciones</th>}
+                  <tr className="bg-canvas text-xs font-medium text-ink-2">
+                    <th scope="col" className="px-6 py-2.5">
+                      Fecha
+                    </th>
+                    <th scope="col" className="px-3 py-2.5">
+                      Hora
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-right">
+                      Temp. (°C)
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-right">
+                      Humedad (%)
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-right">
+                      Viento (km/h)
+                    </th>
+                    <th scope="col" className="px-3 py-2.5">
+                      Fuente
+                    </th>
+                    {esAdmin && (
+                      <th scope="col" className="px-6 py-2.5 text-right">
+                        <span className="sr-only">Acciones</span>
+                      </th>
+                    )}
                   </tr>
                 </thead>
-                <tbody>
-                  {registros.map((r) => (
-                    <tr key={r.id} className="border-b border-slate-100 text-slate-700">
-                      <td className="py-2 pr-4">{r.fecha}</td>
-                      <td className="py-2 pr-4">{r.hora}</td>
-                      <td className="py-2 pr-4">{r.temperatura ?? '—'}</td>
-                      <td className="py-2 pr-4">{r.humedad ?? '—'}</td>
-                      <td className="py-2 pr-4">{r.velocidad_viento ?? '—'}</td>
-                      <td className="py-2 pr-4">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            r.fuente === 'manual'
-                              ? 'bg-[#5C6BC0]/10 text-[#5C6BC0]'
-                              : 'bg-[#01BAEF]/10 text-[#0E7C9B]'
-                          }`}
+                <tbody className="divide-y divide-line">
+                  {cargando
+                    ? Array.from({ length: 6 }).map((_, i) => (
+                        <tr key={i}>
+                          <td colSpan={columnas} className="px-6 py-3">
+                            <div className="skeleton h-5 w-full" />
+                          </td>
+                        </tr>
+                      ))
+                    : registros.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="text-ink transition-colors duration-150 hover:bg-canvas/70"
                         >
-                          {r.fuente === 'manual' ? 'Manual' : 'Open-Meteo'}
-                        </span>
-                      </td>
-                      {esAdmin && (
-                        <td className="py-2 pr-4">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setRegistroEditando(r)}
-                              aria-label="Editar registro"
-                              className="text-slate-400 hover:text-[#0E7C9B]"
+                          <td className="whitespace-nowrap px-6 py-2.5 tabular-nums">{r.fecha}</td>
+                          <td className="px-3 py-2.5 tabular-nums text-ink-2">{r.hora}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">
+                            {r.temperatura ?? '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">{r.humedad ?? '—'}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">
+                            {r.velocidad_viento ?? '—'}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span
+                              className={`badge ${
+                                r.fuente === 'manual'
+                                  ? 'bg-canvas text-ink-2'
+                                  : 'bg-accent-soft text-accent-strong'
+                              }`}
                             >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleEliminar(r.id)}
-                              disabled={eliminandoId === r.id}
-                              aria-label="Eliminar registro"
-                              className="text-slate-400 hover:text-red-600 disabled:opacity-50"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                              {r.fuente === 'manual' ? 'Manual' : 'Open-Meteo'}
+                            </span>
+                          </td>
+                          {esAdmin && (
+                            <td className="px-4 py-1.5">
+                              <div className="flex justify-end gap-0.5">
+                                <button
+                                  onClick={() => setRegistroEditando(r)}
+                                  aria-label="Editar registro"
+                                  className="btn-icon hover:text-accent"
+                                >
+                                  <Pencil size={16} strokeWidth={1.75} />
+                                </button>
+                                <button
+                                  onClick={() => handleEliminar(r.id)}
+                                  disabled={eliminandoId === r.id}
+                                  aria-label="Eliminar registro"
+                                  className="btn-icon hover:bg-danger-soft hover:text-danger"
+                                >
+                                  <Trash2 size={16} strokeWidth={1.75} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
-      </div>
+        </section>
+      </main>
 
       {registroEditando && accessToken && (
         <EditarRegistroModal
