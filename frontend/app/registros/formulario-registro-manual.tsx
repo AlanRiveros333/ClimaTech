@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { CardTitle } from '@/components/page-shell'
 
 export default function FormularioRegistroManual({ onGuardado }: { onGuardado: () => void }) {
   const supabase = createClient()
@@ -66,100 +67,102 @@ export default function FormularioRegistroManual({ onGuardado }: { onGuardado: (
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-    >
-      <h2 className="text-lg font-semibold text-slate-900">Registro manual</h2>
+    <form onSubmit={handleSubmit} className="card flex flex-col p-5 sm:p-6">
+      <CardTitle title="Registro manual" description="Ingresa una lectura puntual. Deja vacío lo que no midas." />
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="fecha" className="mb-1 block text-sm font-medium text-slate-700">
-            Fecha
-          </label>
-          <input
-            id="fecha"
-            type="date"
-            required
-            max={hoy}
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="fecha" className="label">
+              Fecha
+            </label>
+            <input
+              id="fecha"
+              type="date"
+              required
+              max={hoy}
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="hora" className="label">
+              Hora
+            </label>
+            <input
+              id="hora"
+              type="time"
+              required
+              value={hora}
+              onChange={(e) => setHora(e.target.value)}
+              className="input"
+            />
+          </div>
         </div>
-        <div>
-          <label htmlFor="hora" className="mb-1 block text-sm font-medium text-slate-700">
-            Hora
-          </label>
-          <input
-            id="hora"
-            type="time"
-            required
-            value={hora}
-            onChange={(e) => setHora(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="temperatura" className="label">
+              Temp. (°C)
+            </label>
+            <input
+              id="temperatura"
+              type="number"
+              step="0.1"
+              inputMode="decimal"
+              value={temperatura}
+              onChange={(e) => setTemperatura(e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="humedad" className="label">
+              Humedad (%)
+            </label>
+            <input
+              id="humedad"
+              type="number"
+              step="0.1"
+              min="0"
+              max="100"
+              inputMode="decimal"
+              value={humedad}
+              onChange={(e) => setHumedad(e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="viento" className="label">
+              Viento (km/h)
+            </label>
+            <input
+              id="viento"
+              type="number"
+              step="0.1"
+              min="0"
+              inputMode="decimal"
+              value={velocidadViento}
+              onChange={(e) => setVelocidadViento(e.target.value)}
+              className="input"
+            />
+          </div>
         </div>
+
+        {error && (
+          <p role="alert" className="alert-error">
+            {error}
+          </p>
+        )}
+        {exito && (
+          <p role="status" className="alert-success">
+            Registro guardado correctamente.
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label htmlFor="temperatura" className="mb-1 block text-sm font-medium text-slate-700">
-            Temperatura (°C)
-          </label>
-          <input
-            id="temperatura"
-            type="number"
-            step="0.1"
-            value={temperatura}
-            onChange={(e) => setTemperatura(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="humedad" className="mb-1 block text-sm font-medium text-slate-700">
-            Humedad (%)
-          </label>
-          <input
-            id="humedad"
-            type="number"
-            step="0.1"
-            min="0"
-            max="100"
-            value={humedad}
-            onChange={(e) => setHumedad(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="viento" className="mb-1 block text-sm font-medium text-slate-700">
-            Viento (km/h)
-          </label>
-          <input
-            id="viento"
-            type="number"
-            step="0.1"
-            min="0"
-            value={velocidadViento}
-            onChange={(e) => setVelocidadViento(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-      </div>
-
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
-      {exito && <p className="text-sm text-green-600">Registro guardado correctamente.</p>}
-
-      <button
-        type="submit"
-        disabled={guardando}
-        className="rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-      >
-        {guardando ? 'Guardando...' : 'Guardar registro'}
+      <button type="submit" disabled={guardando} className="btn-primary mt-5 w-full sm:w-auto sm:self-start">
+        {guardando ? 'Guardando…' : 'Guardar registro'}
       </button>
     </form>
   )

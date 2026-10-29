@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Users } from 'lucide-react'
+import { Users, UserX } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import NavBar from '@/components/nav-bar'
+import PageShell, { PageHeader, EmptyState, LoadingState } from '@/components/page-shell'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -106,97 +106,110 @@ export default function UsuariosPage() {
     }
   }
 
+  const selectorRol = (u: Usuario) => (
+    <select
+      value={u.rol}
+      disabled={u.id === miId || actualizandoId === u.id}
+      onChange={(e) => actualizar(u.id, { rol: e.target.value })}
+      aria-label={`Rol de ${u.nombre_completo}`}
+      className="input w-auto min-w-[10rem] py-1.5 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+    >
+      <option value="usuario_estandar">Usuario estándar</option>
+      <option value="administrador">Administrador</option>
+    </select>
+  )
+
+  const botonEstado = (u: Usuario) => (
+    <button
+      disabled={u.id === miId || actualizandoId === u.id}
+      onClick={() => actualizar(u.id, { estado: u.estado === 'activo' ? 'inactivo' : 'activo' })}
+      aria-label={`${u.estado === 'activo' ? 'Desactivar' : 'Activar'} cuenta de ${u.nombre_completo}`}
+      className={`badge min-h-8 px-3.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        u.estado === 'activo'
+          ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      }`}
+    >
+      {u.estado === 'activo' ? 'Activo' : 'Inactivo'}
+    </button>
+  )
+
+  const etiquetaTu = (u: Usuario) =>
+    u.id === miId && <span className="badge ml-2 bg-slate-100 text-slate-600">Tú</span>
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
-      <NavBar />
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0B4F6C]/10">
-            <Users size={22} color="#0B4F6C" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Gestión de usuarios</h1>
-            <p className="text-sm text-slate-500">Cambia roles y activa o desactiva cuentas</p>
-          </div>
-        </div>
+    <PageShell width="max-w-4xl">
+      <PageHeader
+        icon={Users}
+        title="Gestión de usuarios"
+        description="Cambia roles y activa o desactiva cuentas."
+      />
 
-        {error && (
-          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-            {error}
-          </p>
-        )}
+      {error && (
+        <p role="alert" className="alert-error">
+          {error}
+        </p>
+      )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          {cargando ? (
-            <p className="text-sm text-slate-400">Cargando...</p>
-          ) : usuarios.length === 0 ? (
-            <p className="text-sm text-slate-400">No hay usuarios registrados.</p>
-          ) : (
-            <div className="overflow-x-auto">
+      <section className="card p-5 sm:p-6">
+        {cargando ? (
+          <LoadingState text="Cargando usuarios…" />
+        ) : usuarios.length === 0 ? (
+          <EmptyState icon={UserX} title="No hay usuarios registrados" text="Los usuarios aparecerán aquí cuando se registren." />
+        ) : (
+          <>
+            {/* Tabla: tablet y escritorio */}
+            <div className="-mx-5 hidden overflow-x-auto sm:-mx-6 md:block">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="py-2 pr-4">Nombre</th>
-                    <th className="py-2 pr-4">Email</th>
-                    <th className="py-2 pr-4">Rol</th>
-                    <th className="py-2 pr-4">Estado</th>
+                  <tr className="border-y border-slate-200 bg-slate-50 text-xs font-medium text-slate-600">
+                    <th scope="col" className="px-5 py-2.5 sm:px-6">Nombre</th>
+                    <th scope="col" className="px-3 py-2.5">Correo</th>
+                    <th scope="col" className="px-3 py-2.5">Rol</th>
+                    <th scope="col" className="px-5 py-2.5 sm:px-6">Estado</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {usuarios.map((u) => {
-                    const esUnoMismo = u.id === miId
-                    const actualizando = actualizandoId === u.id
-                    return (
-                      <tr key={u.id} className="border-b border-slate-100 text-slate-700">
-                        <td className="py-2 pr-4">
-                          {u.nombre_completo}
-                          {esUnoMismo && (
-                            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                              Tú
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2 pr-4 text-slate-500">{u.email}</td>
-                        <td className="py-2 pr-4">
-                          <select
-                            value={u.rol}
-                            disabled={esUnoMismo || actualizando}
-                            onChange={(e) => actualizar(u.id, { rol: e.target.value })}
-                            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <option value="usuario_estandar">Usuario estándar</option>
-                            <option value="administrador">Administrador</option>
-                          </select>
-                        </td>
-                        <td className="py-2 pr-4">
-                          <button
-                            disabled={esUnoMismo || actualizando}
-                            onClick={() =>
-                              actualizar(u.id, {
-                                estado: u.estado === 'activo' ? 'inactivo' : 'activo',
-                              })
-                            }
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                              u.estado === 'activo'
-                                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            {u.estado === 'activo' ? 'Activo' : 'Inactivo'}
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {usuarios.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 font-medium text-slate-900 sm:px-6">
+                        {u.nombre_completo}
+                        {etiquetaTu(u)}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">{u.email}</td>
+                      <td className="px-3 py-3">{selectorRol(u)}</td>
+                      <td className="px-5 py-3 sm:px-6">{botonEstado(u)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-        <p className="text-xs text-slate-400">
-          No puedes cambiar tu propio rol o estado desde aquí, por seguridad.
-        </p>
-      </div>
-    </div>
+
+            {/* Tarjetas: celular */}
+            <ul className="divide-y divide-slate-100 md:hidden">
+              {usuarios.map((u) => (
+                <li key={u.id} className="space-y-3 py-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-900">
+                        {u.nombre_completo}
+                        {etiquetaTu(u)}
+                      </p>
+                      <p className="truncate text-sm text-slate-600">{u.email}</p>
+                    </div>
+                    {botonEstado(u)}
+                  </div>
+                  {selectorRol(u)}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <p className="text-xs text-slate-500">
+        No puedes cambiar tu propio rol o estado desde aquí, por seguridad.
+      </p>
+    </PageShell>
   )
 }

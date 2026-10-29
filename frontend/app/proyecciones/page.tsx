@@ -20,21 +20,23 @@ import {
   Minus,
   ArrowUp,
   ArrowDown,
+  ChevronDown,
+  TriangleAlert,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import NavBar from '@/components/nav-bar'
+import PageShell, { PageHeader, CardTitle } from '@/components/page-shell'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const VARIABLES = [
-  { value: 'temperatura', label: 'Temperatura (°C)', unidad: '°C', Icono: Thermometer, color: '#d97706' },
-  { value: 'humedad', label: 'Humedad (%)', unidad: '%', Icono: Droplets, color: '#1d4ed8' },
+  { value: 'temperatura', label: 'Temperatura (°C)', unidad: '°C', Icono: Thermometer, color: '#c26a05' },
+  { value: 'humedad', label: 'Humedad (%)', unidad: '%', Icono: Droplets, color: '#0f6a88' },
   {
     value: 'velocidad_viento',
     label: 'Velocidad del viento (km/h)',
     unidad: 'km/h',
     Icono: Wind,
-    color: '#0f766e',
+    color: '#0b4f6c',
   },
 ] as const
 
@@ -206,7 +208,7 @@ export default function ProyeccionesPage() {
 
   const IconoTendencia = tendencia === 'sube' ? TrendingUp : tendencia === 'baja' ? TrendingDown : Minus
   const colorTendencia =
-    tendencia === 'sube' ? 'text-orange-600' : tendencia === 'baja' ? 'text-blue-600' : 'text-slate-500'
+    tendencia === 'sube' ? 'text-orange-700' : tendencia === 'baja' ? 'text-blue-700' : 'text-slate-600'
 
   const fraseAmigable = () => {
     if (promedioProyectado === null || promedioReciente === null) return null
@@ -226,85 +228,93 @@ export default function ProyeccionesPage() {
   const horaMax = horasConDato.length > 0 ? Math.max(...horasConDato.map((h) => h.valor as number)) : null
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
-      <NavBar />
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Proyección climática</h1>
-          <p className="text-sm text-slate-500">
-            Estimación a futuro basada en el historial registrado — Cochabamba
-          </p>
-        </div>
+    <PageShell width="max-w-4xl">
+      <PageHeader
+        icon={TrendingUp}
+        title="Proyección climática"
+        description="Estimación a futuro basada en el historial registrado de Cochabamba."
+      />
 
-        {/* ---------- Selector de variable (chips) ---------- */}
-        <div className="flex gap-2">
-          {VARIABLES.map((v) => (
+      {/* ---------- Selector de variable ---------- */}
+      <div role="radiogroup" aria-label="Variable climática" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+        {VARIABLES.map((v) => {
+          const activa = variable === v.value
+          return (
             <button
               key={v.value}
               type="button"
+              role="radio"
+              aria-checked={activa}
               onClick={() => setVariable(v.value)}
-              className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                variable === v.value
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'
+              className={`flex shrink-0 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
+                activa
+                  ? 'border-brand-700 bg-brand-700 text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <v.Icono size={16} />
+              <v.Icono size={16} aria-hidden />
               {v.label.split(' (')[0]}
             </button>
-          ))}
-        </div>
+          )
+        })}
+      </div>
 
-        {/* ---------- Clima por hora (último día registrado) ---------- */}
-        {horasHoy.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-700">
-                Clima por hora — {fechaClimaHora && fechaCorta(fechaClimaHora)}
-              </h2>
-              {horaMin !== null && horaMax !== null && (
-                <span className="flex items-center gap-3 text-xs text-slate-500">
-                  <span className="flex items-center gap-0.5">
-                    <ArrowUp size={12} className="text-orange-500" />
-                    {horaMax.toFixed(1)}
-                    {infoVariable.unidad}
-                  </span>
-                  <span className="flex items-center gap-0.5">
-                    <ArrowDown size={12} className="text-blue-500" />
-                    {horaMin.toFixed(1)}
-                    {infoVariable.unidad}
-                  </span>
+      {/* ---------- Clima por hora (último día registrado) ---------- */}
+      {horasHoy.length > 0 && (
+        <section className="card p-5" aria-label="Clima por hora">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-800">
+              Por hora — último día registrado {fechaClimaHora && `(${fechaCorta(fechaClimaHora)})`}
+            </h2>
+            {horaMin !== null && horaMax !== null && (
+              <span className="flex items-center gap-3 text-xs text-slate-600">
+                <span className="flex items-center gap-0.5">
+                  <ArrowUp size={12} className="text-orange-600" aria-hidden />
+                  <span className="sr-only">Máximo</span>
+                  {horaMax.toFixed(1)}
+                  {infoVariable.unidad}
                 </span>
-              )}
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {horasHoy
-                .filter((h) => h.valor !== null)
-                .map((h) => (
-                  <div key={h.hora} className="flex min-w-[64px] flex-col items-center gap-1">
-                    <span className="text-xs text-slate-400">{horaCorta(h.hora)}</span>
-                    <infoVariable.Icono size={16} color={infoVariable.color} />
-                    <span className="text-sm font-medium text-slate-900">
-                      {h.valor?.toFixed(1)}
-                      {infoVariable.unidad}
-                    </span>
-                  </div>
-                ))}
-            </div>
+                <span className="flex items-center gap-0.5">
+                  <ArrowDown size={12} className="text-blue-600" aria-hidden />
+                  <span className="sr-only">Mínimo</span>
+                  {horaMin.toFixed(1)}
+                  {infoVariable.unidad}
+                </span>
+              </span>
+            )}
           </div>
-        )}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {horasHoy
+              .filter((h) => h.valor !== null)
+              .map((h) => (
+                <div
+                  key={h.hora}
+                  className="flex min-w-[68px] flex-col items-center gap-1 rounded-lg bg-slate-50 px-2 py-2.5"
+                >
+                  <span className="text-xs text-slate-500">{horaCorta(h.hora)}</span>
+                  <infoVariable.Icono size={16} color={infoVariable.color} aria-hidden />
+                  <span className="text-sm font-medium tabular-nums text-slate-900">
+                    {h.valor?.toFixed(1)}
+                    {infoVariable.unidad}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
 
-        <form
-          onSubmit={handleGenerar}
-          className="grid gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
-        >
+      {/* ---------- Formulario ---------- */}
+      <form onSubmit={handleGenerar} className="card p-5 sm:p-6">
+        <CardTitle
+          title="Configurar proyección"
+          description="Elige el método, el historial a usar y cuántos días proyectar."
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Método</label>
-            <select
-              value={metodo}
-              onChange={(e) => setMetodo(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-            >
+            <label htmlFor="metodo" className="label">
+              Método
+            </label>
+            <select id="metodo" value={metodo} onChange={(e) => setMetodo(e.target.value)} className="input">
               {METODOS.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
@@ -314,219 +324,229 @@ export default function ProyeccionesPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Días a proyectar
+            <label htmlFor="dias" className="label">
+              Días a proyectar (1 a 30)
             </label>
             <input
+              id="dias"
               type="number"
               min={1}
               max={30}
+              inputMode="numeric"
               value={diasAProyectar}
               onChange={(e) => setDiasAProyectar(Number(e.target.value))}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
+            <label htmlFor="hist-desde" className="label">
               Histórico desde
             </label>
             <input
+              id="hist-desde"
               type="date"
               required
               value={periodoInicio}
               onChange={(e) => setPeriodoInicio(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Hasta</label>
+            <label htmlFor="hist-hasta" className="label">
+              Hasta
+            </label>
             <input
+              id="hist-hasta"
               type="date"
               required
               value={periodoFin}
               onChange={(e) => setPeriodoFin(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              className="input"
             />
           </div>
+        </div>
 
-          <div className="flex items-end md:col-span-2">
-            <button
-              type="submit"
-              disabled={cargando}
-              className="w-full rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-            >
-              {cargando ? 'Generando...' : 'Generar proyección'}
-            </button>
-          </div>
-
-          {error && (
-            <p role="alert" className="text-sm text-red-600 md:col-span-2">
-              {error}
-            </p>
-          )}
-        </form>
-
-        {/* ---------- Advertencia por datos insuficientes ---------- */}
-        {advertencia && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            <span className="mt-0.5">⚠️</span>
-            <p>{advertencia}</p>
-          </div>
+        {error && (
+          <p role="alert" className="alert-error mt-4">
+            {error}
+          </p>
         )}
 
-        {/* ---------- Resumen tipo "app de clima" ---------- */}
-        {proyeccion.length > 0 && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-start gap-4">
-                <div
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
-                  style={{ backgroundColor: `${infoVariable.color}1a` }}
-                >
-                  <infoVariable.Icono size={28} color={infoVariable.color} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <p className="text-3xl font-semibold text-slate-900">
-                      {promedioProyectado?.toFixed(1)}
-                      <span className="text-lg font-normal text-slate-500">{infoVariable.unidad}</span>
-                    </p>
-                    {tendencia && (
-                      <span className={`flex items-center gap-1 text-sm font-medium ${colorTendencia}`}>
-                        <IconoTendencia size={16} />
-                        {tendencia === 'sube' ? 'En aumento' : tendencia === 'baja' ? 'En descenso' : 'Estable'}
-                      </span>
-                    )}
-                    {proyMax !== null && proyMin !== null && (
-                      <span className="flex items-center gap-2 text-sm text-slate-500">
-                        <span className="flex items-center gap-0.5">
-                          <ArrowUp size={12} className="text-orange-500" />
-                          {proyMax.toFixed(1)}
-                          {infoVariable.unidad}
-                        </span>
-                        <span className="flex items-center gap-0.5">
-                          <ArrowDown size={12} className="text-blue-500" />
-                          {proyMin.toFixed(1)}
-                          {infoVariable.unidad}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">{fraseAmigable()}</p>
-                </div>
+        <button type="submit" disabled={cargando} className="btn-primary mt-5 w-full sm:w-auto">
+          {cargando ? 'Generando…' : 'Generar proyección'}
+        </button>
+      </form>
+
+      {/* ---------- Advertencia por datos insuficientes ---------- */}
+      {advertencia && (
+        <div role="status" className="alert-warn flex items-start gap-3">
+          <TriangleAlert size={18} className="mt-0.5 shrink-0" aria-hidden />
+          <p>{advertencia}</p>
+        </div>
+      )}
+
+      {/* ---------- Resumen de la proyección ---------- */}
+      {proyeccion.length > 0 && (
+        <section className="space-y-4" aria-label="Resultado de la proyección">
+          <div className="card p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div
+                className="flex size-12 shrink-0 items-center justify-center rounded-xl"
+                style={{ backgroundColor: `${infoVariable.color}1a` }}
+              >
+                <infoVariable.Icono size={24} color={infoVariable.color} aria-hidden />
               </div>
-
-              {histMin !== null && histMax !== null && (
-                <div className="mt-4 flex gap-6 border-t border-slate-100 pt-4 text-sm">
-                  <div>
-                    <span className="text-slate-400">Histórico mínimo: </span>
-                    <span className="font-medium text-slate-700">
-                      {histMin.toFixed(1)}
-                      {infoVariable.unidad}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                    {promedioProyectado?.toFixed(1)}
+                    <span className="ml-0.5 text-lg font-normal text-slate-500">{infoVariable.unidad}</span>
+                  </p>
+                  {tendencia && (
+                    <span className={`flex items-center gap-1 text-sm font-medium ${colorTendencia}`}>
+                      <IconoTendencia size={16} aria-hidden />
+                      {tendencia === 'sube' ? 'En aumento' : tendencia === 'baja' ? 'En descenso' : 'Estable'}
                     </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Histórico máximo: </span>
-                    <span className="font-medium text-slate-700">
-                      {histMax.toFixed(1)}
-                      {infoVariable.unidad}
+                  )}
+                  {proyMax !== null && proyMin !== null && (
+                    <span className="flex items-center gap-3 text-sm text-slate-600">
+                      <span className="flex items-center gap-0.5">
+                        <ArrowUp size={12} className="text-orange-600" aria-hidden />
+                        <span className="sr-only">Máximo proyectado</span>
+                        {proyMax.toFixed(1)}
+                        {infoVariable.unidad}
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        <ArrowDown size={12} className="text-blue-600" aria-hidden />
+                        <span className="sr-only">Mínimo proyectado</span>
+                        {proyMin.toFixed(1)}
+                        {infoVariable.unidad}
+                      </span>
                     </span>
-                  </div>
+                  )}
                 </div>
-              )}
+                <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-slate-600">{fraseAmigable()}</p>
+              </div>
             </div>
 
-            {/* Tira de pronóstico diario */}
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {proyeccion.map((p) => (
-                <div
-                  key={p.fecha}
-                  className="flex min-w-[92px] flex-col items-center gap-1 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-                >
-                  <span className="text-xs font-medium uppercase text-slate-500">
-                    {nombreDia(p.fecha)}
-                  </span>
-                  <span className="text-xs text-slate-400">{fechaCorta(p.fecha)}</span>
-                  <infoVariable.Icono size={20} color={infoVariable.color} className="my-1" />
-                  <span className="text-sm font-semibold text-slate-900">
-                    {p.valor.toFixed(1)}
-                    {infoVariable.unidad}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ---------- Detalle técnico (colapsable) ---------- */}
-        {datosGrafico.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-            <button
-              type="button"
-              onClick={() => setVerDetalleTecnico((v) => !v)}
-              className="flex w-full items-center justify-between px-6 py-4 text-left text-sm font-medium text-slate-700"
-            >
-              Ver detalle técnico (gráfico y métricas de error)
-              <span className="text-slate-400">{verDetalleTecnico ? '−' : '+'}</span>
-            </button>
-
-            {verDetalleTecnico && (
-              <div className="space-y-6 border-t border-slate-100 px-6 pb-6 pt-4">
-                {metricas && (
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <p className="text-xs text-slate-500">MAE</p>
-                      <p className="text-xl font-semibold text-slate-900">{metricas.mae}</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <p className="text-xs text-slate-500">RMSE</p>
-                      <p className="text-xl font-semibold text-slate-900">{metricas.rmse}</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-                      <p className="text-xs text-slate-500">R²</p>
-                      <p className="text-xl font-semibold text-slate-900">{metricas.r2 ?? '—'}</p>
-                    </div>
-                  </div>
-                )}
-
+            {histMin !== null && histMax !== null && (
+              <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-2 border-t border-slate-100 pt-4 text-sm">
                 <div>
-                  <h2 className="mb-4 text-sm font-semibold text-slate-700">
-                    Histórico vs. proyección
-                  </h2>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={datosGrafico}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="fecha" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="historico"
-                        stroke="#1d4ed8"
-                        name="Histórico"
-                        dot={false}
-                        connectNulls
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="proyectado"
-                        stroke="#d97706"
-                        name="Proyectado"
-                        strokeDasharray="5 5"
-                        dot={false}
-                        connectNulls
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <dt className="inline text-slate-500">Histórico mínimo: </dt>
+                  <dd className="inline font-medium tabular-nums text-slate-800">
+                    {histMin.toFixed(1)}
+                    {infoVariable.unidad}
+                  </dd>
                 </div>
-              </div>
+                <div>
+                  <dt className="inline text-slate-500">Histórico máximo: </dt>
+                  <dd className="inline font-medium tabular-nums text-slate-800">
+                    {histMax.toFixed(1)}
+                    {infoVariable.unidad}
+                  </dd>
+                </div>
+              </dl>
             )}
           </div>
-        )}
-      </div>
-    </div>
+
+          {/* Tira de pronóstico diario */}
+          <div className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+            {proyeccion.map((p) => (
+              <div
+                key={p.fecha}
+                className="card flex min-w-[88px] flex-col items-center gap-0.5 px-3 py-3"
+              >
+                <span className="text-xs font-medium text-slate-700">{nombreDia(p.fecha)}</span>
+                <span className="text-xs text-slate-500">{fechaCorta(p.fecha)}</span>
+                <infoVariable.Icono size={18} color={infoVariable.color} className="my-1.5" aria-hidden />
+                <span className="text-sm font-semibold tabular-nums text-slate-900">
+                  {p.valor.toFixed(1)}
+                  {infoVariable.unidad}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ---------- Detalle técnico (colapsable) ---------- */}
+      {datosGrafico.length > 0 && (
+        <section className="card">
+          <button
+            type="button"
+            onClick={() => setVerDetalleTecnico((v) => !v)}
+            aria-expanded={verDetalleTecnico}
+            aria-controls="detalle-tecnico"
+            className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left text-sm font-medium text-slate-800 sm:px-6"
+          >
+            Detalle técnico: gráfico y métricas de error
+            <ChevronDown
+              size={18}
+              className={`shrink-0 text-slate-500 transition-transform ${verDetalleTecnico ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </button>
+
+          {verDetalleTecnico && (
+            <div id="detalle-tecnico" className="space-y-6 border-t border-slate-100 px-5 pb-6 pt-5 sm:px-6">
+              {metricas && (
+                <dl className="grid grid-cols-3 gap-3">
+                  <div className="rounded-lg bg-slate-50 p-3 text-center sm:p-4">
+                    <dt className="text-xs text-slate-600">MAE</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 sm:text-xl">{metricas.mae}</dd>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-center sm:p-4">
+                    <dt className="text-xs text-slate-600">RMSE</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 sm:text-xl">{metricas.rmse}</dd>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3 text-center sm:p-4">
+                    <dt className="text-xs text-slate-600">R²</dt>
+                    <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900 sm:text-xl">{metricas.r2 ?? '—'}</dd>
+                  </div>
+                </dl>
+              )}
+              <p className="text-xs leading-relaxed text-slate-500">
+                MAE y RMSE se expresan en la unidad de la variable; mientras más bajos, mejor ajuste al histórico.
+                R² solo aplica a la regresión lineal.
+              </p>
+
+              <div>
+                <h2 className="mb-3 text-sm font-semibold text-slate-800">Histórico vs. proyección</h2>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={datosGrafico} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="fecha" tick={{ fontSize: 11, fill: '#475569' }} minTickGap={24} />
+                    <YAxis tick={{ fontSize: 11, fill: '#475569' }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="historico"
+                      stroke="#0f6a88"
+                      strokeWidth={2}
+                      name="Histórico"
+                      dot={false}
+                      connectNulls
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="proyectado"
+                      stroke="#c26a05"
+                      strokeWidth={2}
+                      name="Proyectado"
+                      strokeDasharray="5 5"
+                      dot={false}
+                      connectNulls
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </PageShell>
   )
 }

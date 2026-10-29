@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { ClipboardList, TrendingUp, FileText, CloudSun } from 'lucide-react'
+import { ClipboardList, TrendingUp, FileText, ChevronRight } from 'lucide-react'
 import { getCurrentProfile } from '@/lib/supabase/server'
-import NavBar from '@/components/nav-bar'
+import PageShell from '@/components/page-shell'
 
 const MODULOS = [
   {
@@ -10,22 +10,25 @@ const MODULOS = [
     titulo: 'Registros climáticos',
     descripcion: 'Registra datos manualmente o impórtalos desde Open-Meteo.',
     Icono: ClipboardList,
-    color: '#0E7C9B',
   },
   {
     href: '/proyecciones',
     titulo: 'Proyección estadística',
     descripcion: 'Genera y compara promedio móvil, Holt y regresión lineal múltiple.',
     Icono: TrendingUp,
-    color: '#F59E0B',
   },
   {
     href: '/reportes',
     titulo: 'Reportes',
     descripcion: 'Exporta un PDF con el resumen histórico y las proyecciones.',
     Icono: FileText,
-    color: '#5C6BC0',
   },
+]
+
+const PASOS = [
+  'Importa o registra datos históricos.',
+  'Genera una proyección con el método que quieras probar.',
+  'Descarga el reporte del período.',
 ]
 
 export default async function DashboardPage() {
@@ -41,61 +44,75 @@ export default async function DashboardPage() {
     month: 'long',
   })
 
+  const rolTexto = profile.rol === 'administrador' ? 'Administrador' : 'Usuario estándar'
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
-      <NavBar />
-
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <div className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF] p-6 text-white shadow-lg sm:p-8">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm capitalize text-white/80">{fechaHoy}</p>
-              <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">
-                Hola, {profile.nombre_completo}
-              </h1>
-              <p className="mt-1 text-sm text-white/80">Cochabamba, Bolivia</p>
-            </div>
-            <CloudSun size={48} className="shrink-0 text-white/90" />
-          </div>
-
-          <div className="mt-6 flex gap-6 border-t border-white/20 pt-4 text-sm">
-            <div>
-              <span className="text-white/70">Rol: </span>
-              <span className="font-medium">{profile.rol}</span>
-            </div>
-            <div>
-              <span className="text-white/70">Estado: </span>
-              <span className="font-medium">{profile.estado}</span>
-            </div>
-          </div>
+    <PageShell>
+      {/* Bienvenida */}
+      <section className="card flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between sm:p-8">
+        <div>
+          <p className="text-sm capitalize text-slate-500">
+            {fechaHoy} · Cochabamba, Bolivia
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
+            Hola, {profile.nombre_completo}
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">¿Por dónde quieres empezar hoy?</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="badge bg-brand-50 text-brand-800">{rolTexto}</span>
+          <span
+            className={`badge ${
+              profile.estado === 'activo' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            Cuenta {profile.estado}
+          </span>
+        </div>
+      </section>
 
-        <h2 className="mb-4 text-sm font-semibold text-slate-500">Módulos del sistema</h2>
+      {/* Módulos */}
+      <section aria-labelledby="modulos">
+        <h2 id="modulos" className="mb-3 text-sm font-semibold text-slate-700">
+          Módulos del sistema
+        </h2>
         <div className="grid gap-4 sm:grid-cols-3">
           {MODULOS.map((modulo) => (
             <Link
               key={modulo.href}
               href={modulo.href}
-              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              className="card group flex flex-col p-5 transition-colors hover:border-brand-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
             >
-              <div
-                className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl"
-                style={{ backgroundColor: `${modulo.color}1a` }}
-              >
-                <modulo.Icono size={22} color={modulo.color} />
-              </div>
+              <span className="mb-4 flex size-10 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                <modulo.Icono size={20} aria-hidden />
+              </span>
               <h3 className="font-semibold text-slate-900">{modulo.titulo}</h3>
-              <p className="mt-1 text-sm text-slate-500">{modulo.descripcion}</p>
-              <span
-                className="mt-3 inline-block text-sm font-medium transition group-hover:underline"
-                style={{ color: modulo.color }}
-              >
-                Ir al módulo
+              <p className="mt-1 flex-1 text-sm leading-relaxed text-slate-600">{modulo.descripcion}</p>
+              <span className="mt-4 inline-flex items-center gap-0.5 text-sm font-medium text-brand-700">
+                Abrir
+                <ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
               </span>
             </Link>
           ))}
         </div>
-      </div>
-    </div>
+      </section>
+
+      {/* Flujo sugerido (es una secuencia real) */}
+      <section className="card p-5 sm:p-6" aria-labelledby="flujo">
+        <h2 id="flujo" className="text-sm font-semibold text-slate-700">
+          Flujo de trabajo sugerido
+        </h2>
+        <ol className="mt-3 grid gap-3 sm:grid-cols-3">
+          {PASOS.map((paso, i) => (
+            <li key={paso} className="flex items-start gap-3 text-sm text-slate-600">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-700 text-xs font-semibold text-white">
+                {i + 1}
+              </span>
+              <span className="pt-0.5">{paso}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </PageShell>
   )
 }

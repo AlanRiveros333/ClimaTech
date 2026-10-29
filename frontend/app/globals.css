@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* ---------- Tokens de diseño de ClimaTech ---------- */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme {
+  /* Marca: azul petróleo (se conserva #0B4F6C del diseño original) */
+  --color-brand-50: #eef6f9;
+  --color-brand-100: #d8ebf2;
+  --color-brand-200: #afd5e3;
+  --color-brand-300: #7bb8cf;
+  --color-brand-500: #1d84a5;
+  --color-brand-600: #0f6a88;
+  --color-brand-700: #0b4f6c;
+  --color-brand-800: #093f56;
+  --color-brand-900: #072d3e;
+  /* Acento para proyecciones / valores a futuro */
+  --color-accent-50: #fff7e8;
+  --color-accent-100: #ffeac2;
+  --color-accent-600: #c26a05;
+  --color-accent-700: #9a5204;
+  /* Superficie general */
+  --color-canvas: #f4f7f9;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: #0f1f29;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Componentes base reutilizables ---------- */
+@layer components {
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-xs;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-slate-700;
+  }
+  .input {
+    @apply min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors;
+    @apply focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20;
+  }
+  .btn {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50 bg-brand-700 text-white hover:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .icon-btn {
+    @apply inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:opacity-50;
+  }
+  .alert {
+    @apply rounded-lg border px-3.5 py-3 text-sm;
+  }
+  .alert-error {
+    @apply rounded-lg border px-3.5 py-3 text-sm border-red-200 bg-red-50 text-red-800;
+  }
+  .alert-success {
+    @apply rounded-lg border px-3.5 py-3 text-sm border-emerald-200 bg-emerald-50 text-emerald-800;
+  }
+  .alert-warn {
+    @apply rounded-lg border px-3.5 py-3 text-sm border-amber-200 bg-amber-50 text-amber-900;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
 }

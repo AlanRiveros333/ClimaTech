@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Thermometer, Pencil, Trash2 } from 'lucide-react'
+import { Thermometer, Pencil, Trash2, Droplets, Wind, Inbox } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import NavBar from '@/components/nav-bar'
+import PageShell, { PageHeader, CardTitle, EmptyState, LoadingState } from '@/components/page-shell'
 import FormularioRegistroManual from './formulario-registro-manual'
 import ImportadorOpenMeteo from './importador-open-meteo'
 import EditarRegistroModal from './editar-registro-modal'
@@ -18,6 +18,18 @@ type Registro = {
   humedad: number | null
   velocidad_viento: number | null
   fuente: string
+}
+
+function FuenteBadge({ fuente }: { fuente: string }) {
+  return (
+    <span
+      className={`badge ${
+        fuente === 'manual' ? 'bg-accent-50 text-accent-700' : 'bg-brand-50 text-brand-800'
+      }`}
+    >
+      {fuente === 'manual' ? 'Manual' : 'Open-Meteo'}
+    </span>
+  )
 }
 
 export default function RegistrosPage() {
@@ -95,102 +107,123 @@ export default function RegistrosPage() {
     }
   }
 
+  const acciones = (r: Registro) => (
+    <div className="flex gap-1">
+      <button
+        onClick={() => setRegistroEditando(r)}
+        aria-label="Editar registro"
+        className="icon-btn hover:bg-brand-50 hover:text-brand-700"
+      >
+        <Pencil size={16} />
+      </button>
+      <button
+        onClick={() => handleEliminar(r.id)}
+        disabled={eliminandoId === r.id}
+        aria-label="Eliminar registro"
+        className="icon-btn hover:bg-red-50 hover:text-red-600"
+      >
+        <Trash2 size={16} />
+      </button>
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#EAF8FD] to-white">
-      <NavBar />
-      <div className="mx-auto max-w-4xl space-y-6 px-4 py-10">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0E7C9B]/10">
-            <Thermometer size={22} color="#0E7C9B" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Registros climáticos</h1>
-            <p className="text-sm text-slate-500">
-              Temperatura, humedad y velocidad del viento — Cochabamba
-            </p>
-          </div>
+    <PageShell>
+      <PageHeader
+        icon={Thermometer}
+        title="Registros climáticos"
+        description="Temperatura, humedad y velocidad del viento de Cochabamba."
+      />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <FormularioRegistroManual onGuardado={cargarRegistros} />
+        <ImportadorOpenMeteo onImportado={cargarRegistros} />
+      </div>
+
+      {error && (
+        <p role="alert" className="alert-error">
+          {error}
+        </p>
+      )}
+
+      <section className="card p-5 sm:p-6" aria-labelledby="ultimos">
+        <div id="ultimos">
+          <CardTitle title="Últimos registros" description="Se muestran las 20 lecturas más recientes." />
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <FormularioRegistroManual onGuardado={cargarRegistros} />
-          <ImportadorOpenMeteo onImportado={cargarRegistros} />
-        </div>
-
-        {error && (
-          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-            {error}
-          </p>
-        )}
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-slate-900">Últimos registros</h2>
-
-          {cargando ? (
-            <p className="text-sm text-slate-400">Cargando...</p>
-          ) : registros.length === 0 ? (
-            <p className="text-sm text-slate-400">Todavía no hay registros.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+        {cargando ? (
+          <LoadingState text="Cargando registros…" />
+        ) : registros.length === 0 ? (
+          <EmptyState
+            icon={Inbox}
+            title="Todavía no hay registros"
+            text="Importa datos desde Open-Meteo o guarda una lectura manual para empezar."
+          />
+        ) : (
+          <>
+            {/* Tabla: tablet y escritorio */}
+            <div className="-mx-5 hidden overflow-x-auto sm:-mx-6 md:block">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="py-2 pr-4">Fecha</th>
-                    <th className="py-2 pr-4">Hora</th>
-                    <th className="py-2 pr-4">Temp. (°C)</th>
-                    <th className="py-2 pr-4">Humedad (%)</th>
-                    <th className="py-2 pr-4">Viento (km/h)</th>
-                    <th className="py-2 pr-4">Fuente</th>
-                    {esAdmin && <th className="py-2 pr-4">Acciones</th>}
+                  <tr className="border-y border-slate-200 bg-slate-50 text-xs font-medium text-slate-600">
+                    <th scope="col" className="px-5 py-2.5 sm:px-6">Fecha</th>
+                    <th scope="col" className="px-3 py-2.5">Hora</th>
+                    <th scope="col" className="px-3 py-2.5 text-right">Temp. (°C)</th>
+                    <th scope="col" className="px-3 py-2.5 text-right">Humedad (%)</th>
+                    <th scope="col" className="px-3 py-2.5 text-right">Viento (km/h)</th>
+                    <th scope="col" className="px-3 py-2.5">Fuente</th>
+                    {esAdmin && <th scope="col" className="px-5 py-2.5 sm:px-6"><span className="sr-only">Acciones</span></th>}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
                   {registros.map((r) => (
-                    <tr key={r.id} className="border-b border-slate-100 text-slate-700">
-                      <td className="py-2 pr-4">{r.fecha}</td>
-                      <td className="py-2 pr-4">{r.hora}</td>
-                      <td className="py-2 pr-4">{r.temperatura ?? '—'}</td>
-                      <td className="py-2 pr-4">{r.humedad ?? '—'}</td>
-                      <td className="py-2 pr-4">{r.velocidad_viento ?? '—'}</td>
-                      <td className="py-2 pr-4">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            r.fuente === 'manual'
-                              ? 'bg-[#5C6BC0]/10 text-[#5C6BC0]'
-                              : 'bg-[#01BAEF]/10 text-[#0E7C9B]'
-                          }`}
-                        >
-                          {r.fuente === 'manual' ? 'Manual' : 'Open-Meteo'}
-                        </span>
-                      </td>
-                      {esAdmin && (
-                        <td className="py-2 pr-4">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setRegistroEditando(r)}
-                              aria-label="Editar registro"
-                              className="text-slate-400 hover:text-[#0E7C9B]"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleEliminar(r.id)}
-                              disabled={eliminandoId === r.id}
-                              aria-label="Eliminar registro"
-                              className="text-slate-400 hover:text-red-600 disabled:opacity-50"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                    <tr key={r.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 sm:px-6">{r.fecha}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{r.hora}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{r.temperatura ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{r.humedad ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{r.velocidad_viento ?? '—'}</td>
+                      <td className="px-3 py-2.5"><FuenteBadge fuente={r.fuente} /></td>
+                      {esAdmin && <td className="px-5 py-2.5 sm:px-6">{acciones(r)}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* Tarjetas: celular */}
+            <ul className="divide-y divide-slate-100 md:hidden">
+              {registros.map((r) => (
+                <li key={r.id} className="py-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">
+                        {r.fecha} <span className="font-normal text-slate-500">· {r.hora}</span>
+                      </p>
+                      <div className="mt-1"><FuenteBadge fuente={r.fuente} /></div>
+                    </div>
+                    {esAdmin && acciones(r)}
+                  </div>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                    <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                      <dt className="flex items-center gap-1 text-xs text-slate-500"><Thermometer size={12} aria-hidden />Temp.</dt>
+                      <dd className="mt-0.5 font-medium tabular-nums text-slate-900">{r.temperatura ?? '—'}<span className="text-xs font-normal text-slate-500"> °C</span></dd>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                      <dt className="flex items-center gap-1 text-xs text-slate-500"><Droplets size={12} aria-hidden />Humedad</dt>
+                      <dd className="mt-0.5 font-medium tabular-nums text-slate-900">{r.humedad ?? '—'}<span className="text-xs font-normal text-slate-500"> %</span></dd>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                      <dt className="flex items-center gap-1 text-xs text-slate-500"><Wind size={12} aria-hidden />Viento</dt>
+                      <dd className="mt-0.5 font-medium tabular-nums text-slate-900">{r.velocidad_viento ?? '—'}<span className="text-xs font-normal text-slate-500"> km/h</span></dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
 
       {registroEditando && accessToken && (
         <EditarRegistroModal
@@ -203,6 +236,6 @@ export default function RegistrosPage() {
           }}
         />
       )}
-    </div>
+    </PageShell>
   )
 }

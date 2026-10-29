@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { CardTitle } from '@/components/page-shell'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -68,61 +69,58 @@ export default function ImportadorOpenMeteo({ onImportado }: { onImportado: () =
   }
 
   return (
-    <form
-      onSubmit={handleImportar}
-      className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-    >
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Importar desde Open-Meteo</h2>
-        <p className="text-sm text-slate-500">
-          Trae temperatura, humedad y viento históricos para Cochabamba en el rango indicado.
-        </p>
+    <form onSubmit={handleImportar} className="card flex flex-col p-5 sm:p-6">
+      <CardTitle
+        title="Importar desde Open-Meteo"
+        description="Trae temperatura, humedad y viento históricos de Cochabamba. Máximo 366 días por importación."
+      />
+
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="fecha_inicio" className="label">
+              Desde
+            </label>
+            <input
+              id="fecha_inicio"
+              type="date"
+              required
+              max={hoy}
+              value={fechaInicio}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="input"
+            />
+          </div>
+          <div>
+            <label htmlFor="fecha_fin" className="label">
+              Hasta
+            </label>
+            <input
+              id="fecha_fin"
+              type="date"
+              required
+              max={hoy}
+              value={fechaFin}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className="input"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <p role="alert" className="alert-error">
+            {error}
+          </p>
+        )}
+        {mensaje && (
+          <p role="status" className="alert-success">
+            {mensaje}
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="fecha_inicio" className="mb-1 block text-sm font-medium text-slate-700">
-            Desde
-          </label>
-          <input
-            id="fecha_inicio"
-            type="date"
-            required
-            max={hoy}
-            value={fechaInicio}
-            onChange={(e) => setFechaInicio(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-        <div>
-          <label htmlFor="fecha_fin" className="mb-1 block text-sm font-medium text-slate-700">
-            Hasta
-          </label>
-          <input
-            id="fecha_fin"
-            type="date"
-            required
-            max={hoy}
-            value={fechaFin}
-            onChange={(e) => setFechaFin(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-      </div>
-
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
-      {mensaje && <p className="text-sm text-green-600">{mensaje}</p>}
-
-      <button
-        type="submit"
-        disabled={importando}
-        className="rounded-lg bg-gradient-to-r from-[#01BAEF] to-[#0E7C9B] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-      >
-        {importando ? 'Importando...' : 'Importar datos'}
+      <button type="submit" disabled={importando} className="btn-primary mt-5 w-full sm:w-auto sm:self-start">
+        {importando ? 'Importando…' : 'Importar datos'}
       </button>
     </form>
   )
