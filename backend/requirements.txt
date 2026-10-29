@@ -7,3 +7,6 @@ pandas
 numpy
 scikit-learn
 statsmodels
+reportlab
+python-docx
+openpyxl
