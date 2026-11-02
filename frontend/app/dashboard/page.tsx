@@ -170,7 +170,7 @@ export default async function DashboardPage() {
       {/* Condiciones registradas */}
       <section aria-label="Condiciones registradas" className="grid gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
         <div className="relative flex flex-col overflow-hidden rounded-xl bg-brand-800 p-6 text-white sm:p-7">
-          <ContourPattern className="pointer-events-none absolute -right-16 -top-10 size-[460px] text-brand-300 opacity-20" />
+          <ContourPattern className="pointer-events-none absolute -right-16 -top-10 size-115 text-brand-300 opacity-20" />
           <div className="relative flex flex-1 flex-col">
             <p className="text-xs font-medium uppercase tracking-wider text-brand-200">Última lectura registrada</p>
 
