@@ -1,22 +1,33 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, FileType, FileSpreadsheet, Download, FileX } from 'lucide-react'
+import { FileText, FileType, FileSpreadsheet, Download, FileX, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import PageShell, { PageHeader, CardTitle, EmptyState, LoadingState } from '@/components/page-shell'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const FORMATOS = [
-  { value: 'pdf', label: 'PDF', Icono: FileText },
-  { value: 'word', label: 'Word', Icono: FileType },
-  { value: 'excel', label: 'Excel', Icono: FileSpreadsheet },
+  { value: 'pdf', label: 'PDF', Icono: FileText, texto: 'Para leer, imprimir o compartir.' },
+  { value: 'word', label: 'Word', Icono: FileType, texto: 'Documento editable.' },
+  { value: 'excel', label: 'Excel', Icono: FileSpreadsheet, texto: 'Tablas y registros del período.' },
 ] as const
 
 type Formato = (typeof FORMATOS)[number]['value']
 
 function etiquetaFormato(tipo: string) {
   return FORMATOS.find((f) => f.value === tipo)?.label ?? 'PDF'
+}
+
+function fechaEs(iso: string) {
+  const [y, m, d] = iso.slice(0, 10).split('-')
+  return `${d}/${m}/${y}`
+}
+
+function fechaHoraEs(iso: string) {
+  const f = new Date(iso)
+  if (Number.isNaN(f.getTime())) return ''
+  return f.toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 type Reporte = {
@@ -108,128 +119,173 @@ export default function ReportesPage() {
   }
 
   return (
-    <PageShell width="max-w-3xl">
+    <PageShell>
       <PageHeader
         icon={FileText}
         title="Reportes"
-        description="Genera un reporte en PDF, Word o Excel con el resumen histórico y las proyecciones del período."
+        description="Resumen histórico y proyecciones de un período, en PDF, Word o Excel."
       />
 
-      <form onSubmit={handleGenerar} className="card p-5 sm:p-6">
-        <CardTitle title="Nuevo reporte" />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+        <div className="space-y-6 lg:sticky lg:top-20">
+          <form onSubmit={handleGenerar} className="card p-5">
+            <CardTitle title="Nuevo reporte" />
 
-        <div className="mb-4">
-          <span id="formato-label" className="label">
-            Formato
-          </span>
-          <div role="radiogroup" aria-labelledby="formato-label" className="grid grid-cols-3 gap-2 sm:max-w-sm">
-            {FORMATOS.map((f) => {
-              const activo = formato === f.value
-              return (
-                <button
-                  key={f.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={activo}
-                  onClick={() => setFormato(f.value)}
-                  className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
-                    activo
-                      ? 'border-brand-700 bg-brand-700 text-white'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <f.Icono size={16} aria-hidden />
-                  {f.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <div>
-            <label htmlFor="rep-desde" className="label">
-              Desde
-            </label>
-            <input
-              id="rep-desde"
-              type="date"
-              required
-              max={hoy}
-              value={periodoInicio}
-              onChange={(e) => setPeriodoInicio(e.target.value)}
-              className="input"
-            />
-          </div>
-          <div>
-            <label htmlFor="rep-hasta" className="label">
-              Hasta
-            </label>
-            <input
-              id="rep-hasta"
-              type="date"
-              required
-              max={hoy}
-              value={periodoFin}
-              onChange={(e) => setPeriodoFin(e.target.value)}
-              className="input"
-            />
-          </div>
-          <button type="submit" disabled={generando} className="btn-primary w-full sm:w-auto">
-            {generando ? 'Generando…' : `Generar ${etiquetaFormato(formato)}`}
-          </button>
-        </div>
-
-        {error && (
-          <p role="alert" className="alert-error mt-4">
-            {error}
-          </p>
-        )}
-        <p className="mt-4 text-xs text-slate-500">
-          Usa el mismo rango de fechas con el que generaste tus proyecciones para que el reporte las incluya
-          automáticamente.
-        </p>
-      </form>
-
-      <section className="card p-5 sm:p-6" aria-labelledby="anteriores">
-        <div id="anteriores">
-          <CardTitle title="Reportes anteriores" />
-        </div>
-
-        {cargandoLista ? (
-          <LoadingState />
-        ) : reportes.length === 0 ? (
-          <EmptyState
-            icon={FileX}
-            title="Todavía no generaste ningún reporte"
-            text="Elige un período arriba y genera tu primer PDF."
-          />
-        ) : (
-          <ul className="-mb-2 divide-y divide-slate-100">
-            {reportes.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-slate-800">
-                  <span className="badge bg-brand-50 text-brand-800">{etiquetaFormato(r.tipo)}</span>
-                  <span>
-                    <span className="tabular-nums">{r.periodo_inicio}</span>
-                    <span className="mx-1.5 text-slate-400">a</span>
-                    <span className="tabular-nums">{r.periodo_fin}</span>
-                  </span>
+            <div className="space-y-5">
+              <div>
+                <span id="formato-label" className="label">
+                  Formato
                 </span>
-                <a
-                  href={r.archivo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary shrink-0"
-                >
-                  <Download size={16} aria-hidden />
-                  Descargar
-                </a>
+                <div role="radiogroup" aria-labelledby="formato-label" className="space-y-2">
+                  {FORMATOS.map((f) => {
+                    const activo = formato === f.value
+                    return (
+                      <button
+                        key={f.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={activo}
+                        onClick={() => setFormato(f.value)}
+                        className={`flex w-full items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
+                          activo ? 'border-brand-700 bg-brand-50' : 'border-slate-300 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <span
+                          className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+                            activo ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          <f.Icono size={18} aria-hidden />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium text-slate-900">{f.label}</span>
+                          <span className="block text-xs text-slate-600">{f.texto}</span>
+                        </span>
+                        {activo && <CheckCircle2 size={18} className="shrink-0 text-brand-700" aria-hidden />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <fieldset>
+                <legend className="label">Período</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="rep-desde" className="mb-1 block text-xs text-slate-500">
+                      Desde
+                    </label>
+                    <input
+                      id="rep-desde"
+                      type="date"
+                      required
+                      max={hoy}
+                      value={periodoInicio}
+                      onChange={(e) => setPeriodoInicio(e.target.value)}
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="rep-hasta" className="mb-1 block text-xs text-slate-500">
+                      Hasta
+                    </label>
+                    <input
+                      id="rep-hasta"
+                      type="date"
+                      required
+                      max={hoy}
+                      value={periodoFin}
+                      onChange={(e) => setPeriodoFin(e.target.value)}
+                      className="input"
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  Usa el mismo rango con el que generaste tus proyecciones para que el reporte las incluya.
+                </p>
+              </fieldset>
+
+              {error && (
+                <p role="alert" className="alert-error">
+                  {error}
+                </p>
+              )}
+
+              <button type="submit" disabled={generando} className="btn-primary w-full">
+                {generando ? 'Generando…' : `Generar ${etiquetaFormato(formato)}`}
+              </button>
+            </div>
+          </form>
+
+          <section className="card p-5" aria-label="Contenido del reporte">
+            <h2 className="text-sm font-semibold text-slate-900">Qué incluye</h2>
+            <ul className="mt-3 space-y-2.5 text-sm text-slate-600">
+              <li className="flex gap-2.5">
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-brand-600" aria-hidden />
+                Estadística descriptiva: media, mínimo, máximo y desviación estándar.
               </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              <li className="flex gap-2.5">
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-brand-600" aria-hidden />
+                Proyecciones del mismo rango con MAE, RMSE y R².
+              </li>
+              <li className="flex gap-2.5">
+                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-brand-600" aria-hidden />
+                En Excel, además, una hoja con los registros del período.
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <section className="card min-w-0 overflow-hidden" aria-labelledby="anteriores">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <h2 id="anteriores" className="text-base font-semibold text-slate-900">
+                Historial de reportes
+              </h2>
+              <p className="text-sm text-slate-600">Los 20 más recientes.</p>
+            </div>
+            {reportes.length > 0 && <span className="badge bg-slate-100 text-slate-700">{reportes.length}</span>}
+          </div>
+
+          {cargandoLista ? (
+            <div className="px-5">
+              <LoadingState />
+            </div>
+          ) : reportes.length === 0 ? (
+            <EmptyState
+              icon={FileX}
+              title="Todavía no generaste ningún reporte"
+              text="Elige un formato y un período en el panel de la izquierda."
+            />
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {reportes.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 text-sm">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="badge w-14 justify-center bg-brand-50 text-brand-800">{etiquetaFormato(r.tipo)}</span>
+                    <div className="min-w-0">
+                      <p className="font-medium tabular-nums text-slate-900">
+                        {fechaEs(r.periodo_inicio)} <span className="font-normal text-slate-400">a</span> {fechaEs(r.periodo_fin)}
+                      </p>
+                      {r.created_at && <p className="text-xs text-slate-500">Generado el {fechaHoraEs(r.created_at)}</p>}
+                    </div>
+                  </div>
+                  <a
+                    href={r.archivo_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Descargar reporte ${etiquetaFormato(r.tipo)} del ${fechaEs(r.periodo_inicio)} al ${fechaEs(r.periodo_fin)}`}
+                    className="btn-secondary shrink-0"
+                  >
+                    <Download size={16} aria-hidden />
+                    Descargar
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </PageShell>
   )
 }

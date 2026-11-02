@@ -7,23 +7,25 @@
 }
 
 @theme {
-  /* Marca: azul petróleo (se conserva #0B4F6C del diseño original) */
+  /* Marca: azul petróleo */
   --color-brand-50: #eef6f9;
   --color-brand-100: #d8ebf2;
   --color-brand-200: #afd5e3;
   --color-brand-300: #7bb8cf;
+  --color-brand-400: #4a9bb9;
   --color-brand-500: #1d84a5;
   --color-brand-600: #0f6a88;
   --color-brand-700: #0b4f6c;
   --color-brand-800: #093f56;
   --color-brand-900: #072d3e;
-  /* Acento para proyecciones / valores a futuro */
+  /* Acento: valores proyectados / calor */
   --color-accent-50: #fff7e8;
   --color-accent-100: #ffeac2;
+  --color-accent-500: #e08a12;
   --color-accent-600: #c26a05;
   --color-accent-700: #9a5204;
-  /* Superficie general */
-  --color-canvas: #f4f7f9;
+  /* Fondo de la app */
+  --color-canvas: #f3f6f8;
 }
 
 :root {
@@ -39,6 +41,13 @@ body {
   color: #0f1f29;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 0;
+}
+
+/* Foco visible y consistente en toda la app */
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -53,6 +62,9 @@ body {
   .card {
     @apply rounded-xl border border-slate-200 bg-white shadow-xs;
   }
+  .eyebrow {
+    @apply text-xs font-medium uppercase tracking-wider text-slate-500;
+  }
   .label {
     @apply mb-1.5 block text-sm font-medium text-slate-700;
   }
@@ -60,23 +72,14 @@ body {
     @apply min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors;
     @apply focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20;
   }
-  .btn {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors;
-    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600;
-    @apply disabled:cursor-not-allowed disabled:opacity-50;
-  }
   .btn-primary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50 bg-brand-700 text-white hover:bg-brand-800;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 bg-brand-700 text-white hover:bg-brand-800;
   }
   .btn-secondary {
-    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
   }
   .icon-btn {
-    @apply inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors;
-    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:opacity-50;
-  }
-  .alert {
-    @apply rounded-lg border px-3.5 py-3 text-sm;
+    @apply inline-flex size-9 items-center justify-center rounded-lg text-slate-500 transition-colors disabled:opacity-50;
   }
   .alert-error {
     @apply rounded-lg border px-3.5 py-3 text-sm border-red-200 bg-red-50 text-red-800;
@@ -89,5 +92,19 @@ body {
   }
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  /* Controles segmentados (variables, formatos, pestañas) */
+  .seg {
+    @apply flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors;
+  }
+  .seg-off {
+    @apply border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .seg-on {
+    @apply border-brand-700 bg-brand-700 text-white;
+  }
+  /* Tablas */
+  .th {
+    @apply px-3 py-2.5 text-xs font-medium text-slate-600;
   }
 }
