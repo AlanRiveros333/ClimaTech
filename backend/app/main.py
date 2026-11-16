@@ -1,10 +1,26 @@
+import asyncio
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import get_current_user, UsuarioActual
-from app.routers import registros, proyecciones, reportes, usuarios
+from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos
 
-app = FastAPI(title="ClimaTech API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Revisión automática de alertas: se activa con ALERTAS_AUTO=1 en backend/.env
+    tarea = None
+    if os.getenv("ALERTAS_AUTO") == "1":
+        tarea = asyncio.create_task(alertas.bucle_automatico())
+    yield
+    if tarea:
+        tarea.cancel()
+
+
+app = FastAPI(title="ClimaTech API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +34,9 @@ app.include_router(registros.router)
 app.include_router(proyecciones.router)
 app.include_router(reportes.router)
 app.include_router(usuarios.router)
+app.include_router(ia.router)
+app.include_router(alertas.router)
+app.include_router(fenomenos.router)
 
 
 @app.get("/health")

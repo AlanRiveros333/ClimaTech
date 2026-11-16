@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Rutas que requieren solo estar autenticado (cualquier rol)
-const RUTAS_PROTEGIDAS = ['/dashboard', '/registros', '/proyecciones', '/reportes']
+const RUTAS_PROTEGIDAS = ['/dashboard', '/registros', '/proyecciones', '/reportes', '/ia', '/alertas', '/fenomenos']
 
 // Rutas exclusivas del administrador
 const RUTAS_SOLO_ADMIN = ['/usuarios', '/auditoria']
@@ -71,5 +71,8 @@ export const config = {
     '/reportes/:path*',
     '/usuarios/:path*',
     '/auditoria/:path*',
+    '/ia/:path*', 
+    '/alertas/:path*', 
+    '/fenomenos/:path*'
   ],
 }

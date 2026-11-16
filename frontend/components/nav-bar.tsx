@@ -3,24 +3,18 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { CloudSun, LogOut, Menu, X } from 'lucide-react'
+import { CloudSun } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const ENLACES = [
   { href: '/dashboard', label: 'Inicio' },
   { href: '/registros', label: 'Registros' },
   { href: '/proyecciones', label: 'Proyecciones' },
+  { href: '/ia', label: 'IA' },
+  { href: '/fenomenos', label: 'Fenómenos' },
+  { href: '/alertas', label: 'Alertas' },
   { href: '/reportes', label: 'Reportes' },
 ]
-
-function iniciales(nombre: string) {
-  return nombre
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('')
-}
 
 export default function NavBar() {
   const pathname = usePathname()
@@ -29,7 +23,6 @@ export default function NavBar() {
 
   const [nombre, setNombre] = useState<string | null>(null)
   const [rol, setRol] = useState<string | null>(null)
-  const [menuAbierto, setMenuAbierto] = useState(false)
 
   useEffect(() => {
     async function cargarPerfil() {
@@ -60,31 +53,26 @@ export default function NavBar() {
   }
 
   const enlaces = rol === 'administrador' ? [...ENLACES, { href: '/usuarios', label: 'Usuarios' }] : ENLACES
-  const etiquetaRol = rol === 'administrador' ? 'Administrador' : 'Usuario'
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-8">
-          <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-brand-800">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-brand-700 text-white">
-              <CloudSun size={18} aria-hidden />
-            </span>
+    <header className="bg-gradient-to-r from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF]">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-6">
+          <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-white">
+            <CloudSun size={18} />
             ClimaTech
-          </Link>
-
-          <nav aria-label="Principal" className="hidden items-center gap-1 md:flex">
+          </span>
+          <nav className="flex gap-1 overflow-x-auto">
             {enlaces.map((enlace) => {
               const activo = pathname?.startsWith(enlace.href)
               return (
                 <Link
                   key={enlace.href}
                   href={enlace.href}
-                  aria-current={activo ? 'page' : undefined}
-                  className={`relative rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition ${
                     activo
-                      ? 'font-medium text-brand-800 after:absolute after:inset-x-3 after:-bottom-[13px] after:h-0.5 after:rounded-full after:bg-brand-700'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-white/90 text-[#0B4F6C] font-medium'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {enlace.label}
@@ -94,79 +82,25 @@ export default function NavBar() {
           </nav>
         </div>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="flex shrink-0 items-center gap-3">
           {nombre && (
-            <div className="flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="flex size-8 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-800"
-              >
-                {iniciales(nombre)}
-              </span>
-              <div className="leading-tight">
-                <p className="max-w-[160px] truncate text-sm font-medium text-slate-900">{nombre}</p>
-                {rol && <p className="text-xs text-slate-500">{etiquetaRol}</p>}
-              </div>
-            </div>
+            <span className="hidden text-sm text-white/90 lg:block">
+              {nombre}
+              {rol && (
+                <span className="ml-2 rounded-full bg-white/15 px-2 py-0.5 text-xs text-white">
+                  {rol === 'administrador' ? 'Admin' : 'Usuario'}
+                </span>
+              )}
+            </span>
           )}
-          <button onClick={handleLogout} className="btn-secondary">
-            <LogOut size={16} aria-hidden />
+          <button
+            onClick={handleLogout}
+            className="rounded-full border border-white/30 px-3 py-1.5 text-sm text-white transition hover:bg-white/10"
+          >
             Cerrar sesión
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setMenuAbierto((v) => !v)}
-          aria-expanded={menuAbierto}
-          aria-controls="menu-movil"
-          aria-label={menuAbierto ? 'Cerrar menú' : 'Abrir menú'}
-          className="icon-btn md:hidden hover:bg-slate-100"
-        >
-          {menuAbierto ? <X size={20} /> : <Menu size={20} />}
-        </button>
       </div>
-
-      {menuAbierto && (
-        <div id="menu-movil" className="border-t border-slate-200 bg-white px-4 pb-4 pt-3 md:hidden">
-          {nombre && (
-            <div className="mb-3 flex items-center gap-2.5 border-b border-slate-100 pb-3">
-              <span
-                aria-hidden
-                className="flex size-9 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-800"
-              >
-                {iniciales(nombre)}
-              </span>
-              <div>
-                <p className="text-sm font-medium text-slate-900">{nombre}</p>
-                {rol && <p className="text-xs text-slate-500">{etiquetaRol}</p>}
-              </div>
-            </div>
-          )}
-          <nav aria-label="Principal móvil" className="flex flex-col gap-1">
-            {enlaces.map((enlace) => {
-              const activo = pathname?.startsWith(enlace.href)
-              return (
-                <Link
-                  key={enlace.href}
-                  href={enlace.href}
-                  onClick={() => setMenuAbierto(false)}
-                  aria-current={activo ? 'page' : undefined}
-                  className={`rounded-lg px-3 py-2.5 text-sm ${
-                    activo ? 'bg-brand-50 font-medium text-brand-800' : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {enlace.label}
-                </Link>
-              )
-            })}
-          </nav>
-          <button onClick={handleLogout} className="btn-secondary mt-3 w-full">
-            <LogOut size={16} aria-hidden />
-            Cerrar sesión
-          </button>
-        </div>
-      )}
     </header>
   )
 }
