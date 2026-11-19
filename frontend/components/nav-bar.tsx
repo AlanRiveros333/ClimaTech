@@ -6,15 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { CloudSun } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
-const ENLACES = [
-  { href: '/dashboard', label: 'Inicio' },
-  { href: '/registros', label: 'Registros' },
-  { href: '/proyecciones', label: 'Proyecciones' },
-  { href: '/ia', label: 'IA' },
-  { href: '/fenomenos', label: 'Fenómenos' },
-  { href: '/alertas', label: 'Alertas' },
-  { href: '/reportes', label: 'Reportes' },
-]
+// Todo el sistema vive en el asistente; solo el administrador tiene además la gestión de usuarios.
+const ENLACES = [{ href: '/asistente', label: 'Asistente' }]
 
 export default function NavBar() {
   const pathname = usePathname()

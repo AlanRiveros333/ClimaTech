@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import get_current_user, UsuarioActual
-from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos
+from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos, asistente
 
 
 @asynccontextmanager
@@ -37,6 +37,7 @@ app.include_router(usuarios.router)
 app.include_router(ia.router)
 app.include_router(alertas.router)
 app.include_router(fenomenos.router)
+app.include_router(asistente.router)
 
 
 @app.get("/health")
