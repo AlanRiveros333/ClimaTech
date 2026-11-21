@@ -7,7 +7,10 @@ import { CloudSun } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // Todo el sistema vive en el asistente; solo el administrador tiene además la gestión de usuarios.
-const ENLACES = [{ href: '/asistente', label: 'Asistente' }]
+const ENLACES = [
+  { href: '/', label: 'Inicio' },
+  { href: '/asistente', label: 'Asistente' },
+]
 
 export default function NavBar() {
   const pathname = usePathname()
@@ -48,7 +51,7 @@ export default function NavBar() {
   const enlaces = rol === 'administrador' ? [...ENLACES, { href: '/usuarios', label: 'Usuarios' }] : ENLACES
 
   return (
-    <header className="bg-gradient-to-r from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF]">
+    <header className="bg-linear-to-r from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF]">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
         <div className="flex min-w-0 items-center gap-6">
           <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-white">
@@ -57,14 +60,14 @@ export default function NavBar() {
           </span>
           <nav className="flex gap-1 overflow-x-auto">
             {enlaces.map((enlace) => {
-              const activo = pathname?.startsWith(enlace.href)
+              const activo = enlace.href === '/' ? pathname === '/' : pathname?.startsWith(enlace.href)
               return (
                 <Link
                   key={enlace.href}
                   href={enlace.href}
                   className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition ${
                     activo
-                      ? 'bg-white/90 text-[#0B4F6C] font-medium'
+                      ? 'bg-white/90 text-brand-700 font-medium'
                       : 'text-white/80 hover:bg-white/10 hover:text-white'
                   }`}
                 >

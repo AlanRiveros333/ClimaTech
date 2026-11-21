@@ -97,15 +97,26 @@ def _alerta(tipo: str, nivel: str, fecha: str, valor: float, mensaje: str) -> di
     }
 
 
-def componer_correo(nombre: str, alertas: list[dict]) -> tuple[str, str]:
-    """Devuelve (asunto, cuerpo en texto plano)."""
+def componer_correo(nombre: str, alertas: list[dict], prueba: bool = False) -> tuple[str, str]:
+    """Devuelve (asunto, cuerpo en texto plano). Con prueba=True marca el correo como simulado."""
     hay_alto = any(a["nivel"] == "alto" for a in alertas)
     asunto = (
         "ClimaTech: alerta climática para Cochabamba"
         if hay_alto
         else "ClimaTech: aviso climático para Cochabamba"
     )
-    lineas = [f"Hola {nombre},", "", "ClimaTech detectó las siguientes condiciones previstas en Cochabamba:", ""]
+    if prueba:
+        asunto = "[PRUEBA] " + asunto
+    lineas = [f"Hola {nombre},", ""]
+    if prueba:
+        lineas += [
+            "*** CORREO DE PRUEBA: los datos de abajo son simulados y no corresponden a una alerta real. ***",
+            "",
+            "Así se vería una alerta de ClimaTech para Cochabamba:",
+            "",
+        ]
+    else:
+        lineas += ["ClimaTech detectó las siguientes condiciones previstas en Cochabamba:", ""]
     for a in sorted(alertas, key=lambda x: (x["fecha"], x["tipo"])):
         etiqueta = "ALERTA" if a["nivel"] == "alto" else "Aviso"
         lineas.append(f"- [{etiqueta}] {a['fecha']}: {a['titulo']}. {a['mensaje']}")
@@ -117,3 +128,17 @@ def componer_correo(nombre: str, alertas: list[dict]) -> tuple[str, str]:
         "Puedes desactivarlas desde la sección Alertas.",
     ]
     return asunto, "\n".join(lineas)
+
+
+# Valores simulados para el botón "Enviar alerta de prueba" (superan los umbrales "alto").
+VALORES_PRUEBA = {
+    "lluvia": (45.0, "Se esperan 45 mm de lluvia (posible lluvia torrencial)."),
+    "helada": (-1.0, "Temperatura mínima de -1.0 °C (helada)."),
+    "calor": (36.0, "Temperatura máxima de 36.0 °C."),
+    "viento": (75.0, "Ráfagas de hasta 75 km/h."),
+}
+
+
+def alerta_de_prueba(tipo: str, fecha: str) -> dict:
+    valor, mensaje = VALORES_PRUEBA[tipo]
+    return _alerta(tipo, "alto", fecha, valor, mensaje)

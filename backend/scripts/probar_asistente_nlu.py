@@ -52,6 +52,10 @@ CASOS = [
     ("simula la revisión de alertas", None, "revisar_alertas", {"simular": True}),
     ("historial de alertas enviadas", None, "historial_alertas", {}),
     ("mándame una alerta de prueba a mi correo", None, "prueba_alerta", {}),
+    ("genera un reporte en excel del último año", None, "reporte", {"formato": "excel"}),
+    ("quiero el informe en Word", None, "reporte", {"formato": "word"}),
+    ("en excel", {"accion": {"tipo": "generar_reporte", "params": {"periodo_inicio": "2026-01-01", "periodo_fin": "2026-06-30"}}}, "reporte", {"formato": "excel"}),
+    ("envíame las alertas por correo", None, "enviar_alerta_correo", {}),
 ]
 
 

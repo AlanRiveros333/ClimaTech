@@ -48,8 +48,10 @@ INTENCIONES = (
     "nuevo_evento",
     "revisar_alertas",
     "historial_alertas",
+    "enviar_alerta_correo",
 )
 ACCIONES = (
+    "enviar_alerta_actual",
     "revisar_alertas",
     "importar_open_meteo",
     "generar_reporte",
@@ -271,6 +273,11 @@ def extraer_slots(t: str, hoy: date) -> tuple[dict, list[str]]:
             slots["tipo_alerta"] = tipo
             break
 
+    for formato, patron in (("word", r"\b(word|docx)\b"), ("excel", r"\b(excel|xlsx|hoja de calculo)\b"), ("pdf", r"\bpdf\b")):
+        if _tiene(t, patron):
+            slots["formato"] = formato
+            break
+
     valores = _extraer_valores(t)
     if valores:
         slots["valores"] = valores
@@ -338,6 +345,8 @@ def sanear_slots(s: Any) -> dict:
         out["periodo"] = periodo
     if isinstance(s.get("cantidad"), int) and not isinstance(s.get("cantidad"), bool) and 1 <= s["cantidad"] <= 30:
         out["cantidad"] = s["cantidad"]
+    if s.get("formato") in ("pdf", "word", "excel"):
+        out["formato"] = s["formato"]
     for clave in ("simular", "a_suscriptores"):
         if isinstance(s.get(clave), bool):
             out[clave] = s[clave]
@@ -455,6 +464,10 @@ P_REVISAR_ALERTAS = (
     r"\b(envia\w*|manda\w*|dispara\w*|simula\w*)\b.*\b(alertas?|avisos)\b|\b(envia\w*|manda\w*)\b.*\bsuscriptores\b|"
     r"\brevis\w+ y envi\w+\b|\bsimula\w* (la )?revision\b"
 )
+P_ENVIAR_MI_ALERTA = (
+    r"\b(envia\w*|manda\w*)\b.*\b(alertas?|avisos?)\b.*\b(a mi|mi)\s+(correo|mail|gmail|email)\b|"
+    r"\b(enviame|mandame)\b.*\b(alertas?|avisos?)\b|\b(alertas?|avisos?)\b.*\b(a mi|mi) (correo|mail|gmail|email)\b"
+)
 P_HISTORIAL_ALERTAS = r"\bhistorial\b.*\balertas?\b|\balertas?\b.*\b(enviadas|mandadas)\b|\bquien\b.*\balertas?\b"
 P_NUEVO_EVENTO = r"\b(registra\w*|agrega\w*|anade|crea\w*|nuevo|nueva|dar de alta)\b.*\b(evento|fenomeno)\b"
 P_REGISTRAR = r"\b(registra\w*|ingresa\w*|anota\w*|guarda\w*|agrega\w*|anade|cargar un dato)\b"
@@ -484,7 +497,7 @@ P_AYUDA = (
     r"buenas noches|que puedes|que sabes|que haces"
 )
 
-_SLOTS_DATOS = ("variable", "dias", "periodo", "usar_enso", "metodo", "tipo_alerta", "valores", "cantidad")
+_SLOTS_DATOS = ("variable", "dias", "periodo", "usar_enso", "metodo", "tipo_alerta", "valores", "cantidad", "formato")
 
 
 def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
@@ -511,6 +524,10 @@ def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
     elif tk == ["no"]:
         return r("cancelar")
 
+    # «en Excel» / «en Word» como respuesta a un reporte que espera confirmación
+    acc = ctx["accion"]
+    if acc and acc["tipo"] == "generar_reporte" and "formato" in slots and not _tiene(t, P_REPORTE):
+        return r("reporte", seguimiento=True)
     if _tiene(t, P_REPORTE):
         return r("mis_reportes" if _tiene(t, P_MIS_REPORTES) else "reporte")
     if _tiene(t, P_IMPORTAR) and (_tiene(t, r"\bimporta\w*") or _tiene(t, P_DATOS)):
@@ -522,6 +539,8 @@ def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
             return r("activar_alertas")
     if _tiene(t, P_PRUEBA) and _tiene(t, P_CORREO):
         return r("prueba_alerta")
+    if _tiene(t, P_ENVIAR_MI_ALERTA) and not _tiene(t, r"\b(todos|suscriptores|usuarios)\b"):
+        return r("enviar_alerta_correo")
     if _tiene(t, P_HISTORIAL_ALERTAS):
         return r("historial_alertas")
     if _tiene(t, P_REVISAR_ALERTAS):

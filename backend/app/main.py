@@ -1,9 +1,11 @@
 import asyncio
 import os
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.auth import get_current_user, UsuarioActual
 from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos, asistente
@@ -21,6 +23,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ClimaTech API", lifespan=lifespan)
+
+
+# IMPORTANTE: este filtro debe registrarse ANTES que CORSMiddleware. Así, un error interno
+# (500) sale con las cabeceras de CORS y el navegador muestra el mensaje real en vez de
+# un engañoso "blocked by CORS policy". El detalle completo queda en la terminal del backend.
+@app.middleware("http")
+async def capturar_errores(request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Error interno del servidor ({type(exc).__name__}): {exc}"},
+        )
+
 
 app.add_middleware(
     CORSMiddleware,

@@ -23,7 +23,7 @@ import json
 import logging
 import os
 
-import httpx
+import http
 
 from app.asistente_nlu import INTENCIONES, METODOS, TIPOS_ALERTA, VARIABLES, validar_interpretacion
 
@@ -60,7 +60,7 @@ def interpretar_con_llm(texto: str, ctx: dict) -> dict | None:
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
     }
     try:
-        r = httpx.post(
+        r = http.post(
             URL.format(modelo=modelo),
             headers={"x-goog-api-key": clave, "content-type": "application/json"},
             json=cuerpo,
@@ -69,6 +69,6 @@ def interpretar_con_llm(texto: str, ctx: dict) -> dict | None:
         r.raise_for_status()
         salida = r.json()["candidates"][0]["content"]["parts"][0]["text"]
         return validar_interpretacion(json.loads(salida))
-    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+    except (http.HTTPError, KeyError, IndexError, ValueError) as exc:
         logger.warning("Gemini no disponible, se usan las reglas: %s", exc)
         return None

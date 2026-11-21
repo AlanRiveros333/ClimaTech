@@ -40,28 +40,63 @@ def _fecha(iso: str) -> str:
 
 
 # ------------------------------------------------------------------ proyección
-def texto_enso(usado: bool, varia: bool | None, evento_actual: str | None, metodo_elegido: str) -> str:
-    if not usado:
-        base = "No incluí fenómenos climáticos en esta proyección."
-        if evento_actual:
-            base += f" Hay un evento en curso ({evento_actual}); puedo repetirla incluyéndolo."
-        return base
+DIAS_SEMANA = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
-    if varia is False:
+
+def nombre_dia(iso: str) -> str:
+    from datetime import date
+
+    return DIAS_SEMANA[date.fromisoformat(iso).weekday()]
+
+
+def nombre_mes(numero: int) -> str:
+    return MESES[numero - 1]
+
+
+def descriptor(variable: str, valor: float) -> str:
+    """Palabra sencilla para el valor (umbrales orientativos para el clima de Cochabamba)."""
+    if variable == "temperatura":
+        for limite, nombre in ((10, "Frío"), (14, "Fresco"), (19, "Templado"), (24, "Cálido")):
+            if valor < limite:
+                return nombre
+        return "Caluroso"
+    if variable == "humedad":
+        for limite, nombre in ((30, "Muy seca"), (50, "Seca"), (70, "Confortable"), (85, "Húmeda")):
+            if valor < limite:
+                return nombre
+        return "Muy húmeda"
+    for limite, nombre in ((6, "Calma"), (15, "Brisa suave"), (30, "Viento moderado")):
+        if valor < limite:
+            return nombre
+    return "Viento fuerte"
+
+
+def texto_enso(info: dict, metodo_elegido: str) -> str:
+    """info: modo (auto|forzado|excluido), usado, varia, evento_actual, rmse_con, rmse_sin."""
+    ev = f" Evento en curso: {info['evento_actual']}." if info.get("evento_actual") else ""
+    modo = info["modo"]
+    if info["usado"]:
+        if modo == "forzado":
+            base = "Incluí la fase de El Niño / La Niña porque lo pediste."
+        else:
+            base = (
+                "Probé la proyección con y sin la fase de El Niño / La Niña, y con ella el error fue menor "
+                f"(RMSE {_f(info['rmse_con'], 2)} frente a {_f(info['rmse_sin'], 2)} sin ella), así que la incluí."
+            )
+        return base + " Esto no prueba que el evento cause el cambio: es una variable más que el modelo puede aprovechar." + ev
+    if modo == "excluido":
+        return "No incluí fenómenos climáticos, como pediste." + ev
+    if info.get("varia") is False:
+        prefijo = "Pediste incluir El Niño / La Niña, pero" if modo == "forzado" else "No pude evaluar el efecto de El Niño / La Niña:"
         return (
-            "Incluí la fase de El Niño / La Niña como variable, pero en el histórico usado fue siempre la misma, "
-            "así que no aportó información. Para que aporte, usa un histórico más largo con años con y sin evento."
+            f"{prefijo} el histórico usado no incluye períodos con y sin evento, así que no aporta información. "
+            "Con más años de datos podré tomarlo en cuenta." + ev
         )
-    partes = ["Incluí la fase de El Niño / La Niña (según los eventos registrados) como variable explicativa"]
-    if evento_actual:
-        partes.append(f"; evento en curso: {evento_actual}")
-    partes.append(". ")
-    if metodo_elegido in USA_ENSO:
-        partes.append("El método elegido sí la usa. ")
-    else:
-        partes.append("El método elegido no la usa (solo la regresión, Random Forest y Gradient Boosting lo hacen). ")
-    partes.append("Esto no prueba que el evento cause el cambio: es una variable más que el modelo puede aprovechar.")
-    return "".join(partes)
+    return (
+        "Probé incluir la fase de El Niño / La Niña, pero no mejoró el error de forma apreciable "
+        f"(RMSE {_f(info['rmse_con'], 2)} frente a {_f(info['rmse_sin'], 2)} sin ella), así que no la usé." + ev
+    )
 
 
 def texto_proyeccion(
@@ -74,20 +109,9 @@ def texto_proyeccion(
     enso: dict,
     advertencias: list[str],
 ) -> str:
+    """Justificación completa (método, error, datos y fenómenos). Se muestra en «¿Cómo lo calculé?»."""
     u = UNIDADES[variable]
-    valores = [p["valor"] for p in elegido["proyeccion"]]
-    prom, vmin, vmax = sum(valores) / len(valores), min(valores), max(valores)
-    primero, ultimo = elegido["proyeccion"][0]["fecha"], elegido["proyeccion"][-1]["fecha"]
-
-    lineas = [
-        f"Proyección de {NOMBRE_VARIABLE[variable]} del {_fecha(primero)} al {_fecha(ultimo)} ({dias} día(s)): "
-        f"entre {_f(vmin)} y {_f(vmax)} {u}, con un promedio de {_f(prom)} {u}"
-        + (f" (los últimos 7 días promediaron {_f(serie['reciente'])} {u})." if serie.get("reciente") is not None else "."),
-        "",
-        f"Método usado: {elegido['nombre']}.",
-        DESCRIPCION_METODO[elegido["metodo"]],
-        "",
-    ]
+    lineas = [f"Método usado: {elegido['nombre']}.", DESCRIPCION_METODO[elegido["metodo"]], ""]
 
     n = len(resultado["resultados"])
     dp = resultado["dias_prueba"]
@@ -118,13 +142,59 @@ def texto_proyeccion(
     lineas += [
         "",
         f"Datos: {serie['dias_serie']} días de histórico (del {_fecha(serie['inicio'])} al {_fecha(serie['fin'])}).",
-        texto_enso(enso["usado"], enso["varia"], enso["evento_actual"], elegido["metodo"]),
+        texto_enso(enso, elegido["metodo"]),
     ]
     for o in resultado.get("omitidos", []):
         lineas.append(f"Nota: {o['nombre']} no se ejecutó: {o['motivo']}")
     for a in advertencias:
         lineas.append(f"Ojo: {a}")
     lineas += ["", DESCARGO]
+    return "\n".join(lineas)
+
+
+def texto_proyeccion_corto(
+    variable: str,
+    dias: int,
+    resumen: dict,
+    habitual: dict | None,
+    enso: dict,
+    alertas: list[dict] | None,
+    pronostico_ok: bool,
+) -> str:
+    """Resumen breve en lenguaje sencillo, para el mensaje del chat."""
+    u = UNIDADES[variable]
+    prom = resumen["promedio"]
+    lineas = [
+        f"Proyección de {NOMBRE_VARIABLE[variable]} para los próximos {dias} día(s): promedio de "
+        f"{_f(prom)} {u} ({descriptor(variable, prom).lower()}), con valores entre {_f(resumen['minimo'])} y {_f(resumen['maximo'])} {u}."
+    ]
+    if habitual:
+        d = habitual["diferencia"]
+        if abs(d) < 0.3 * (1 if variable == "temperatura" else 3):
+            lineas.append(f"Es lo habitual para {habitual['mes']}.")
+        else:
+            mas = {"temperatura": ("más cálido", "más fresco"), "humedad": ("más húmedo", "más seco"), "velocidad_viento": ("más ventoso", "más calmo")}[variable]
+            lineas.append(f"Es {_f(abs(d))} {u} {mas[0] if d > 0 else mas[1]} de lo habitual para {habitual['mes']}.")
+    if enso["modo"] == "excluido":
+        lineas.append("No incluí fenómenos climáticos, como pediste.")
+    elif enso.get("evento_actual"):
+        if enso["usado"]:
+            lineas.append(f"Tomé en cuenta el evento climático en curso ({enso['evento_actual']}), porque mejoró la proyección.")
+        elif enso.get("varia") is False:
+            lineas.append(
+                f"Hay un evento en curso ({enso['evento_actual']}), pero el histórico no incluye períodos con y sin evento "
+                "y no pude evaluar su efecto."
+            )
+        else:
+            lineas.append(f"Hay un evento en curso ({enso['evento_actual']}), pero no mejoró la proyección con estos datos.")
+    if not pronostico_ok:
+        lineas.append("No pude consultar las alertas del pronóstico (¿sin conexión a internet?).")
+    elif alertas:
+        nombres = ", ".join(f"{a['titulo'].lower()} ({_fecha(a['fecha'])[:5]})" for a in alertas[:4])
+        lineas.append(f"Alertas probables en los próximos días: {nombres}. Puedo enviártelas por correo.")
+    else:
+        lineas.append("No hay alertas probables en los próximos días según el pronóstico.")
+    lineas.append("Toca «¿Cómo lo calculé?» para ver el método y la justificación.")
     return "\n".join(lineas)
 
 
@@ -152,12 +222,13 @@ def texto_metodos() -> str:
 def texto_ayuda() -> str:
     return (
         "Hola, soy el asistente de ClimaTech. Desde aquí puedes hacer todo, escribiendo o con los botones:\n"
-        "• Proyectar temperatura, humedad o viento (con o sin El Niño / La Niña) y entender qué método usé y por qué.\n"
+        "• Proyectar temperatura, humedad o viento: tomo en cuenta El Niño / La Niña si mejora el resultado, te muestro "
+        "las alertas probables y puedo enviártelas por correo.\n"
         "• Registrar un dato a mano, ver los últimos registros y, si eres administrador, editarlos o eliminarlos.\n"
         "• Importar datos históricos de Open-Meteo y saber cuántos datos tienes.\n"
         "• Generar reportes en PDF y volver a abrir los anteriores.\n"
-        "• Ver el evento climático en curso (El Niño / La Niña) y las anomalías de los datos.\n"
-        "• Ver el pronóstico, activar tus alertas por correo y enviarte un correo de prueba.\n"
+        "• Ver los fenómenos climáticos (El Niño / La Niña) junto con las anomalías de los datos.\n"
+        "• Activar tus alertas por correo y enviarte un correo de prueba.\n"
         "Antes de importar datos, generar reportes o enviar correos siempre te pido confirmación."
     )
 
@@ -188,8 +259,8 @@ def texto_reportes(filas: list[dict]) -> str:
     if not filas:
         return "Todavía no generaste ningún reporte. ¿Quieres generar uno?"
     if len(filas) == 1:
-        return "Este es tu reporte más reciente. Pulsa el enlace para abrir el PDF."
-    return f"Estos son tus {len(filas)} reportes más recientes. Pulsa el enlace para abrir el PDF."
+        return "Este es tu reporte más reciente. Pulsa el enlace para abrir el archivo."
+    return f"Estos son tus {len(filas)} reportes más recientes. Pulsa el enlace para abrir el archivo."
 
 
 def texto_historial_alertas(filas: list[dict]) -> str:
@@ -200,7 +271,7 @@ def texto_historial_alertas(filas: list[dict]) -> str:
     return f"Estas son las últimas {len(filas)} alertas enviadas."
 
 
-def texto_eventos(eventos: list[dict], actual: dict | None) -> str:
+def texto_eventos(eventos: list[dict], actual: dict | None, cierre: bool = True) -> str:
     lineas = []
     if actual:
         lineas.append(
@@ -221,7 +292,8 @@ def texto_eventos(eventos: list[dict], actual: dict | None) -> str:
                 f"• {e['nombre']}: {ETIQUETA_FASE[e['fase']]}, {ETIQUETA_INTENSIDAD.get(e['intensidad'], e['intensidad'])} "
                 f"({_fecha(str(e['fecha_inicio']))} – {fin})"
             )
-    lineas += ["", "Si quieres, comparo cómo se comportó la temperatura, la humedad o el viento de Cochabamba durante esos eventos."]
+    if cierre:
+        lineas += ["", "Si quieres, comparo cómo se comportó la temperatura, la humedad o el viento de Cochabamba durante esos eventos."]
     return "\n".join(lineas)
 
 

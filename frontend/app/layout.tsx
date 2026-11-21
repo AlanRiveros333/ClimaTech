@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ClimaTech — Monitoreo y proyección climática",
+  title: "ClimaTech — Monitoreo y proyección climática de Cochabamba",
   description:
-    "Monitoreo y proyección estadística de temperatura, humedad y viento para Cochabamba.",
+    "Sistema web para el monitoreo y la proyección estadística de temperatura, humedad y viento en Cochabamba, con inteligencia artificial, fenómenos El Niño / La Niña y alertas por correo.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

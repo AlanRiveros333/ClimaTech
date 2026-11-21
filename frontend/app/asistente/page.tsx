@@ -14,8 +14,9 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { Bot, Pencil, Send, Trash2, User } from 'lucide-react'
+import { Bot, ChevronDown, CloudRain, CloudSun, Pencil, Send, Snowflake, Sun, Trash2, User, Wind } from 'lucide-react'
 import NavBar from '@/components/nav-bar'
+import { IconoVariable, colorVariable } from '@/components/clima-visuales'
 import EditarRegistroModal, { RegistroEditable } from '@/components/editar-registro-modal'
 import { apiFetch } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
@@ -29,14 +30,25 @@ type Accion = {
   descripcion: string
 }
 type Punto = { fecha: string; valor: number }
+type DiaProy = { fecha: string; dia: string; valor: number; descriptor: string; max_est: number | null; min_est: number | null }
+type DiaPron = { fecha: string; lluvia_mm: number | null; prob_lluvia: number | null; tmax: number | null; tmin: number | null; rafaga: number | null }
+type AlertaPron = { tipo: string; titulo: string; nivel: 'alto' | 'medio'; fecha: string; mensaje: string }
 type TarjetaProyeccion = {
   tipo: 'proyeccion'
   variable: string
   unidad: string
   metodo: string
+  resumen: { promedio: number; minimo: number; maximo: number; reciente: number; descriptor: string }
+  habitual: { valor: number; mes: string; diferencia: number } | null
+  anomalia_reciente: { mes: string; anomalia: number; fase: string } | null
+  dias: DiaProy[]
+  rango_estimado: boolean
+  enso: { usado: boolean; evento_actual: string | null }
+  pronostico: { ok: boolean; dias: DiaPron[]; alertas: AlertaPron[] }
   historico: Punto[]
   proyeccion: Punto[]
   prueba: { fecha: string; real: number; predicho: number }[]
+  justificacion: string
   metodos: { nombre: string; mae: number; rmse: number; elegido: boolean; mejor: boolean }[]
 }
 type TarjetaEventos = {
@@ -52,11 +64,7 @@ type TarjetaAnomalias = {
   por_fase: { fase: string; etiqueta: string; meses: number; anomalia_media: number | null }[]
   mensual: { mes: string; anomalia: number | null; fase: string }[]
 }
-type TarjetaPronostico = {
-  tipo: 'pronostico'
-  dias: { fecha: string; lluvia_mm: number | null; prob_lluvia: number | null; tmax: number | null; tmin: number | null; rafaga: number | null }[]
-  alertas: { tipo: string; titulo: string; nivel: 'alto' | 'medio'; fecha: string; mensaje: string }[]
-}
+type TarjetaPronostico = { tipo: 'pronostico'; dias: DiaPron[]; alertas: AlertaPron[] }
 type TarjetaResumen = {
   tipo: 'resumen'
   dias_con_datos: number
@@ -74,7 +82,7 @@ type TarjetaFormRegistro = {
 type TarjetaFormEvento = { tipo: 'form_evento' }
 type TarjetaReportes = {
   tipo: 'reportes'
-  filas: { id: string; periodo_inicio: string; periodo_fin: string; archivo_url: string; created_at: string }[]
+  filas: { id: string; tipo?: string; periodo_inicio: string; periodo_fin: string; archivo_url: string; created_at: string }[]
 }
 type TarjetaHistorial = {
   tipo: 'historial_alertas'
@@ -118,25 +126,24 @@ type Callbacks = {
   eliminarRegistro: (id: string) => void
   editarRegistro: (r: RegistroEditable) => void
   eliminarEvento: (id: string) => void
+  preguntar: (texto: string) => void
 }
 
 const ATAJOS: Boton[] = [
-  { texto: 'Proyectar', mensaje: 'proyecta la temperatura de los próximos 7 días' },
-  { texto: 'Proyección con El Niño', mensaje: 'proyecta la temperatura de los próximos 7 días tomando en cuenta El Niño' },
+  { texto: 'Proyección del clima', mensaje: 'proyecta la temperatura de los próximos 7 días' },
   { texto: 'Registrar dato', mensaje: 'quiero registrar un dato' },
   { texto: 'Ver registros', mensaje: 'muéstrame los últimos registros' },
   { texto: 'Importar datos', mensaje: 'importa datos de Open-Meteo' },
   { texto: 'Mis datos', mensaje: '¿cuántos datos tengo?' },
   { texto: 'Reporte PDF', mensaje: 'genera un reporte' },
   { texto: 'Mis reportes', mensaje: 'muéstrame mis reportes anteriores' },
-  { texto: 'Fenómenos', mensaje: '¿hay algún evento climático en curso?' },
-  { texto: 'Anomalías', mensaje: '¿qué anomalías tuvo la temperatura?' },
-  { texto: 'Pronóstico y alertas', mensaje: 'pronóstico de lluvia' },
+  { texto: 'Fenómenos y anomalías', mensaje: '¿qué fenómenos y anomalías hay?' },
+  { texto: 'Alertas por correo', mensaje: 'pronóstico de lluvia' },
   { texto: 'Métodos', mensaje: 'explícame los métodos' },
 ]
 
 const SALUDO =
-  'Hola, soy el asistente de ClimaTech. Desde aquí puedes hacerlo todo, escribiendo o con los botones de arriba: proyectar variables climáticas (con o sin El Niño / La Niña), registrar e importar datos, generar reportes, ver fenómenos climáticos y gestionar tus alertas por correo. Antes de importar datos, generar reportes o enviar correos siempre te pido confirmación. ¿Qué quieres hacer?'
+  'Hola, soy el asistente de ClimaTech. Desde aquí puedes hacerlo todo, escribiendo o con los botones de arriba. Cuando pidas una proyección tomaré en cuenta El Niño / La Niña si mejora el resultado, te mostraré las alertas probables y podré enviártelas por correo. Antes de importar datos, generar reportes o enviar correos siempre te pido confirmación. ¿Qué quieres hacer?'
 
 const COLOR_FASE = { el_nino: '#d97706', la_nina: '#1d4ed8', neutro: '#94a3b8' }
 const FASE: Record<string, string> = { el_nino: 'El Niño', la_nina: 'La Niña' }
@@ -152,8 +159,31 @@ const BOTON_PRIMARIO =
   'rounded-lg bg-gradient-to-r from-[#0B4F6C] to-[#0E7C9B] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50'
 
 // ------------------------------------------------------------- tarjetas
-function CardProyeccion({ t }: { t: TarjetaProyeccion }) {
+const NOMBRE_VARIABLE: Record<string, string> = { temperatura: 'Temperatura', humedad: 'Humedad', velocidad_viento: 'Viento' }
+
+function IconoAlerta({ tipo }: { tipo: string }) {
+  if (tipo === 'lluvia') return <CloudRain size={18} />
+  if (tipo === 'helada') return <Snowflake size={18} />
+  if (tipo === 'calor') return <Sun size={18} />
+  return <Wind size={18} />
+}
+
+// Cielo del pronóstico de Open-Meteo: lluvia, helada o seco.
+function IconoCielo({ d }: { d: DiaPron }) {
+  if ((d.lluvia_mm ?? 0) >= 1 || (d.prob_lluvia ?? 0) >= 60) return <CloudRain size={30} className="text-sky-600" />
+  if ((d.tmin ?? 99) <= 1) return <Snowflake size={30} className="text-blue-500" />
+  if ((d.prob_lluvia ?? 0) >= 20) return <CloudSun size={30} className="text-amber-500" />
+  return <Sun size={30} className="text-amber-500" />
+}
+
+function CardProyeccion({ t, cb }: { t: TarjetaProyeccion; cb: Callbacks }) {
+  const [abierto, setAbierto] = useState(false)
   const [detalle, setDetalle] = useState(false)
+  const u = t.unidad
+  const r = t.resumen
+  const esTemp = t.variable === 'temperatura'
+  const dif = r.promedio - r.reciente
+  const signo = (x: number) => (x >= 0 ? '+' : '')
   const datos = [
     ...t.historico.map((p, i) => ({
       fecha: p.fecha.slice(5),
@@ -167,57 +197,202 @@ function CardProyeccion({ t }: { t: TarjetaProyeccion }) {
     })),
   ]
   return (
-    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={datos}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
-          <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} unit={` ${t.unidad}`} width={64} />
-          <Tooltip />
-          <Legend />
-          <Line type="monotone" dataKey="historico" name="Histórico" stroke="#0f172a" dot={false} connectNulls />
-          <Line type="monotone" dataKey="proyeccion" name={`Proyección (${t.metodo})`} stroke="#d97706" strokeDasharray="5 5" dot connectNulls />
-        </LineChart>
-      </ResponsiveContainer>
-      <table className="w-full text-left text-xs">
-        <thead>
-          <tr className="border-b border-slate-200 text-slate-500">
-            <th className="py-1 pr-3">Método</th>
-            <th className="py-1 pr-3">MAE ({t.unidad})</th>
-            <th className="py-1 pr-3">RMSE ({t.unidad})</th>
-          </tr>
-        </thead>
-        <tbody>
-          {t.metodos.map((m) => (
-            <tr key={m.nombre} className={`border-b border-slate-100 ${m.elegido ? 'bg-emerald-50 font-medium' : ''} text-slate-700`}>
-              <td className="py-1 pr-3">
-                {m.nombre}
-                {m.elegido && <span className="ml-1 text-emerald-700">★ usado</span>}
-                {m.mejor && !m.elegido && <span className="ml-1 text-slate-400">(menor error)</span>}
-              </td>
-              <td className="py-1 pr-3">{m.mae}</td>
-              <td className="py-1 pr-3">{m.rmse}</td>
-            </tr>
+    <div className="mt-3 space-y-3">
+      {/* Resumen principal, al estilo de las páginas de clima */}
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B4F6C] via-[#0E7C9B] to-[#01BAEF] p-5 text-white shadow">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs text-white/80">
+              Cochabamba · {NOMBRE_VARIABLE[t.variable] ?? t.variable} · próximos {t.dias.length} día(s)
+            </p>
+            <p className="mt-1 text-5xl font-semibold">
+              {r.promedio.toFixed(1)}
+              <span className="text-xl font-normal text-white/80"> {u}</span>
+            </p>
+            <span className="mt-2 inline-block rounded-full bg-white/20 px-3 py-0.5 text-sm font-medium">{r.descriptor}</span>
+          </div>
+          <div className="rounded-2xl bg-white/95 p-3">
+            <IconoVariable variable={t.variable} valor={r.promedio} alto={88} />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 text-xs sm:grid-cols-3">
+          <div className="rounded-lg bg-white/15 p-2">
+            Rango proyectado: {r.minimo.toFixed(1)} – {r.maximo.toFixed(1)} {u}
+          </div>
+          <div className="rounded-lg bg-white/15 p-2">
+            Última semana: {r.reciente.toFixed(1)} {u} ({signo(dif)}
+            {dif.toFixed(1)})
+          </div>
+          {t.habitual && (
+            <div className="rounded-lg bg-white/15 p-2">
+              Habitual en {t.habitual.mes}: {t.habitual.valor.toFixed(1)} {u} ({signo(t.habitual.diferencia)}
+              {t.habitual.diferencia.toFixed(1)})
+            </div>
+          )}
+        </div>
+        {(t.enso.evento_actual || t.anomalia_reciente) && (
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+            {t.enso.evento_actual && (
+              <span className="rounded-full bg-amber-400/90 px-3 py-1 font-medium text-amber-950">
+                {t.enso.evento_actual} · {t.enso.usado ? 'considerado en el cálculo' : 'no mejoró la proyección'}
+              </span>
+            )}
+            {t.anomalia_reciente && (
+              <span className="rounded-full bg-white/20 px-3 py-1">
+                Último mes completo ({t.anomalia_reciente.mes}): {signo(t.anomalia_reciente.anomalia)}
+                {t.anomalia_reciente.anomalia.toFixed(1)} {u} vs lo habitual
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Día por día */}
+      <div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {t.dias.map((d) => (
+            <div key={d.fecha} className="flex min-w-[88px] flex-col items-center rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm">
+              <span className="text-xs font-semibold uppercase text-slate-500">{d.dia}</span>
+              <span className="text-[11px] text-slate-400">
+                {d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}
+              </span>
+              <div className="my-2">
+                <IconoVariable variable={t.variable} valor={d.valor} alto={52} />
+              </div>
+              <span className="text-lg font-semibold text-slate-900">
+                {d.valor.toFixed(1)}
+                {esTemp ? '°' : ''}
+              </span>
+              <span className="text-[11px] font-medium" style={{ color: colorVariable(t.variable, d.valor) }}>
+                {d.descriptor}
+              </span>
+              {d.max_est !== null && d.min_est !== null && (
+                <span className="mt-1 text-[11px] text-slate-500">
+                  ↑{d.max_est.toFixed(0)}° ↓{d.min_est.toFixed(0)}°
+                </span>
+              )}
+            </div>
           ))}
-        </tbody>
-      </table>
-      <button type="button" onClick={() => setDetalle((v) => !v)} className="text-xs font-medium text-[#0E7C9B] underline">
-        {detalle ? 'Ocultar detalle técnico' : 'Ver detalle técnico (prueba real vs. predicho)'}
+        </div>
+        {t.rango_estimado && <p className="mt-1 text-[11px] text-slate-400">Máx/mín estimados con la amplitud diaria de los últimos 90 días.</p>}
+      </div>
+
+      {/* Alertas probables y pronóstico del cielo (Open-Meteo) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="mb-2 text-xs font-semibold text-slate-500">Próximos días según Open-Meteo (modelo meteorológico externo)</p>
+        {!t.pronostico.ok ? (
+          <p className="text-xs text-slate-400">No se pudo consultar el pronóstico (¿sin conexión a internet?).</p>
+        ) : (
+          <>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {t.pronostico.dias.map((d) => (
+                <div key={d.fecha} className="flex min-w-[110px] flex-col items-center rounded-xl border border-slate-100 bg-slate-50 p-2 text-center text-[11px] text-slate-600">
+                  <span className="font-medium text-slate-800">
+                    {d.fecha.slice(8, 10)}/{d.fecha.slice(5, 7)}
+                  </span>
+                  <IconoCielo d={d} />
+                  <span>
+                    {d.lluvia_mm === null ? '—' : d.lluvia_mm.toFixed(1)} mm ({d.prob_lluvia === null ? '—' : d.prob_lluvia.toFixed(0)}%)
+                  </span>
+                  <span>
+                    {d.tmax === null ? '—' : d.tmax.toFixed(0)}° / {d.tmin === null ? '—' : d.tmin.toFixed(0)}°
+                  </span>
+                </div>
+              ))}
+            </div>
+            {t.pronostico.alertas.length === 0 ? (
+              <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-700">Sin alertas probables en los próximos días.</p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {t.pronostico.alertas.map((a) => (
+                  <p
+                    key={`${a.tipo}-${a.fecha}`}
+                    className={`flex items-start gap-2 rounded-lg border p-2 text-xs ${
+                      a.nivel === 'alto' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}
+                  >
+                    <IconoAlerta tipo={a.tipo} />
+                    <span>
+                      <b>
+                        {a.fecha.slice(8, 10)}/{a.fecha.slice(5, 7)} · {a.titulo}.
+                      </b>{' '}
+                      {a.mensaje}
+                    </span>
+                  </p>
+                ))}
+                <button onClick={() => cb.preguntar('envíame las alertas por correo')} className={BOTON_PRIMARIO}>
+                  Enviarme esta alerta por correo
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Cómo se calculó */}
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"
+      >
+        ¿Cómo lo calculé? (método, error y fenómenos)
+        <ChevronDown size={16} className={abierto ? 'rotate-180 transition' : 'transition'} />
       </button>
-      {detalle && (
-        <div>
-          <p className="mb-2 text-xs text-slate-500">Lo que {t.metodo} predijo para los últimos días, que no vio al entrenar.</p>
+      {abierto && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">{t.justificacion}</p>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={t.prueba.map((p) => ({ fecha: p.fecha.slice(5), real: p.real, predicho: p.predicho }))}>
+            <LineChart data={datos}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} width={64} />
+              <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} unit={` ${u}`} width={64} />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="real" name="Real" stroke="#0f172a" strokeWidth={2} />
-              <Line type="monotone" dataKey="predicho" name="Predicho" stroke="#7c3aed" strokeDasharray="4 4" />
+              <Line type="monotone" dataKey="historico" name="Histórico" stroke="#0f172a" dot={false} connectNulls />
+              <Line type="monotone" dataKey="proyeccion" name={`Proyección (${t.metodo})`} stroke="#d97706" strokeDasharray="5 5" dot connectNulls />
             </LineChart>
           </ResponsiveContainer>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500">
+                <th className="py-1 pr-3">Método</th>
+                <th className="py-1 pr-3">MAE ({u})</th>
+                <th className="py-1 pr-3">RMSE ({u})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.metodos.map((m) => (
+                <tr key={m.nombre} className={`border-b border-slate-100 ${m.elegido ? 'bg-emerald-50 font-medium' : ''} text-slate-700`}>
+                  <td className="py-1 pr-3">
+                    {m.nombre}
+                    {m.elegido && <span className="ml-1 text-emerald-700">★ usado</span>}
+                    {m.mejor && !m.elegido && <span className="ml-1 text-slate-400">(menor error)</span>}
+                  </td>
+                  <td className="py-1 pr-3">{m.mae}</td>
+                  <td className="py-1 pr-3">{m.rmse}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" onClick={() => setDetalle((v) => !v)} className="text-xs font-medium text-[#0E7C9B] underline">
+            {detalle ? 'Ocultar la prueba real vs. predicho' : 'Ver la prueba real vs. predicho'}
+          </button>
+          {detalle && (
+            <div>
+              <p className="mb-2 text-xs text-slate-500">Lo que {t.metodo} predijo para los últimos días, que no vio al entrenar.</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={t.prueba.map((p) => ({ fecha: p.fecha.slice(5), real: p.real, predicho: p.predicho }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} width={64} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="real" name="Real" stroke="#0f172a" strokeWidth={2} />
+                  <Line type="monotone" dataKey="predicho" name="Predicho" stroke="#7c3aed" strokeDasharray="4 4" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -227,7 +402,12 @@ function CardProyeccion({ t }: { t: TarjetaProyeccion }) {
 function CardEventos({ t, cb }: { t: TarjetaEventos; cb: Callbacks }) {
   return (
     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 text-xs">
-      {t.evento_actual && <p className="mb-2 rounded-lg bg-amber-50 p-2 font-medium text-amber-800">Evento en curso: {t.evento_actual}</p>}
+      {t.evento_actual && (
+        <div className="mb-3 rounded-xl bg-gradient-to-r from-[#0B4F6C] to-[#d97706] p-3 text-white">
+          <p className="text-[11px] uppercase tracking-wide text-white/80">Evento en curso</p>
+          <p className="text-sm font-semibold">{t.evento_actual}</p>
+        </div>
+      )}
       <table className="w-full text-left">
         <tbody>
           {t.eventos.map((e) => (
@@ -523,7 +703,7 @@ function CardReportes({ t }: { t: TarjetaReportes }) {
             {r.periodo_inicio} — {r.periodo_fin}
           </span>
           <a href={r.archivo_url} target="_blank" rel="noopener noreferrer" className="font-medium text-[#0E7C9B] underline">
-            Descargar PDF
+            Descargar {({ pdf: 'PDF', word: 'Word', excel: 'Excel' } as Record<string, string>)[r.tipo ?? ''] ?? 'archivo'}
           </a>
         </li>
       ))}
@@ -566,7 +746,7 @@ function Tarjetas({ lista, cb }: { lista: Tarjeta[]; cb: Callbacks }) {
       {lista.map((t, i) => {
         switch (t.tipo) {
           case 'proyeccion':
-            return <CardProyeccion key={i} t={t} />
+            return <CardProyeccion key={i} t={t} cb={cb} />
           case 'eventos':
             return <CardEventos key={i} t={t} cb={cb} />
           case 'anomalias':
@@ -621,9 +801,14 @@ export default function AsistentePage() {
       } else if (a.tipo === 'generar_reporte') {
         const d = await apiFetch<{ archivo_url: string }>('/reportes/generar', {
           method: 'POST',
-          body: JSON.stringify({ periodo_inicio: a.params.periodo_inicio, periodo_fin: a.params.periodo_fin }),
+          body: JSON.stringify({
+            periodo_inicio: a.params.periodo_inicio,
+            periodo_fin: a.params.periodo_fin,
+            formato: a.params.formato ?? 'pdf',
+          }),
         })
-        agregar({ rol: 'asistente', texto: 'Reporte generado.', enlace: { texto: 'Abrir el PDF', url: d.archivo_url } })
+        const nombre = { pdf: 'PDF', word: 'Word', excel: 'Excel' }[a.params.formato ?? 'pdf'] ?? 'archivo'
+        agregar({ rol: 'asistente', texto: `Reporte en ${nombre} generado.`, enlace: { texto: `Abrir el ${nombre}`, url: d.archivo_url } })
       } else if (a.tipo === 'activar_alertas' || a.tipo === 'desactivar_alertas') {
         const activar = a.tipo === 'activar_alertas'
         await apiFetch('/alertas/preferencia', { method: 'PATCH', body: JSON.stringify({ alertas_activas: activar }) })
@@ -640,6 +825,9 @@ export default function AsistentePage() {
             ? `Correo de prueba enviado a ${d.enviados} suscriptor(es).`
             : `Correo de prueba enviado a ${d.destino ?? 'tu correo'}. Revisa tu bandeja (y spam).`,
         })
+      } else if (a.tipo === 'enviar_alerta_actual') {
+        const d = await apiFetch<{ destino: string; alertas: number }>('/alertas/enviarme', { method: 'POST' })
+        agregar({ rol: 'asistente', texto: `Listo: te envié ${d.alertas} alerta(s) a ${d.destino}. Revisa tu bandeja (y la carpeta de spam).` })
       } else if (a.tipo === 'revisar_alertas') {
         const simular = a.params.simular === 'true'
         const d = await apiFetch<{
@@ -692,6 +880,9 @@ export default function AsistentePage() {
 
   // Acciones directas de las tarjetas (formularios, editar y eliminar)
   const cb: Callbacks = {
+    preguntar: (texto) => {
+      void enviar(texto)
+    },
     guardarRegistro: async (d) => {
       await apiFetch('/registros/manual', { method: 'POST', body: JSON.stringify(d) })
       agregar({

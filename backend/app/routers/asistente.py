@@ -14,6 +14,8 @@ propios permisos y auditoría).
 
 from datetime import date, timedelta
 
+import pandas as pd
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -25,6 +27,9 @@ from app.asistente_nlu import fusionar_slots, interpretar, resolver_periodo, san
 from app.asistente_texto import (
     UNIDADES,
     texto_anomalias,
+    descriptor,
+    nombre_dia,
+    nombre_mes,
     texto_ayuda,
     texto_historial_alertas,
     texto_registros,
@@ -34,6 +39,7 @@ from app.asistente_texto import (
     texto_metodos,
     texto_pronostico,
     texto_proyeccion,
+    texto_proyeccion_corto,
 )
 from app.auth import UsuarioActual, get_current_user, supabase_admin
 from app.datos import cargar_serie_diaria, listar_eventos
@@ -46,6 +52,7 @@ DIAS_PRUEBA = 7
 DIAS_HISTORICO_DEFECTO = 730
 MAX_DIAS_IMPORTACION = 366
 MINIMO_RECOMENDADO_ML = 90
+MEJORA_MIN_ENSO = 0.02  # la fase El Niño/La Niña se usa solo si baja el error al menos un 2 %
 
 OTRAS_VARIABLES = {
     "temperatura": [("humedad", "Humedad"), ("velocidad_viento", "Viento")],
@@ -65,14 +72,13 @@ def _b(texto: str, mensaje: str | None = None) -> dict:
 
 
 BOTONES_AYUDA = [
-    _b("Proyectar temperatura", "proyecta la temperatura de los próximos 7 días"),
-    _b("Proyección con El Niño", "proyecta la temperatura de los próximos 7 días tomando en cuenta El Niño"),
+    _b("Proyección del clima", "proyecta la temperatura de los próximos 7 días"),
     _b("Registrar un dato", "quiero registrar un dato"),
     _b("Ver registros", "muéstrame los últimos registros"),
     _b("Importar datos", "importa datos de Open-Meteo"),
     _b("Generar reporte", "genera un reporte"),
-    _b("¿Hay un evento en curso?", "¿hay algún evento climático en curso?"),
-    _b("Pronóstico y alertas", "pronóstico de lluvia"),
+    _b("Fenómenos y anomalías", "¿qué fenómenos y anomalías hay?"),
+    _b("Alertas por correo", "pronóstico de lluvia"),
 ]
 BOTONES_PERIODO = [
     _b("Últimos 30 días", "últimos 30 días"),
@@ -202,6 +208,85 @@ def _sin_datos(variable, inicio, fin, ctx, avisos):
     )
 
 
+def _dias_de(diario: dict) -> list[dict]:
+    return [
+        {
+            "fecha": f,
+            "lluvia_mm": valor_en(diario.get("precipitation_sum"), i),
+            "prob_lluvia": valor_en(diario.get("precipitation_probability_max"), i),
+            "tmax": valor_en(diario.get("temperature_2m_max"), i),
+            "tmin": valor_en(diario.get("temperature_2m_min"), i),
+            "rafaga": valor_en(diario.get("wind_gusts_10m_max"), i),
+        }
+        for i, f in enumerate(diario.get("time") or [])
+    ]
+
+
+def _alertas_probables() -> tuple[bool, list[dict], list[dict]]:
+    """(consulta_ok, dias, alertas). No falla si no hay internet: devuelve (False, [], [])."""
+    try:
+        diario = modulo_alertas.obtener_pronostico(timeout=6.0)
+    except HTTPException:
+        return False, [], []
+    return True, _dias_de(diario), evaluar_pronostico(diario)
+
+
+def _consultar_amplitud() -> tuple[float, float] | None:
+    """Amplitud diaria típica de los últimos 90 días (cuánto sube el máximo y baja el mínimo respecto al promedio)."""
+    try:
+        filas = (
+            supabase_admin.table("registros_diarios")
+            .select("temperatura,temperatura_max,temperatura_min")
+            .order("fecha", desc=True)
+            .limit(90)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None  # la vista aún no tiene las columnas (migración 003)
+    if not filas:
+        return None
+    d = pd.DataFrame(filas).dropna()
+    if d.empty:
+        return None
+    return float((d["temperatura_max"] - d["temperatura"]).mean()), float((d["temperatura"] - d["temperatura_min"]).mean())
+
+
+def _guardar_proyeccion(usuario, variable: str, elegido: dict, inicio: date, fin: date, enso_usado: bool) -> bool:
+    """Guarda la proyección como hacía la pantalla de Proyecciones, para que los reportes la incluyan."""
+    try:
+        fila = (
+            supabase_admin.table("proyecciones")
+            .insert(
+                {
+                    "variable": variable,
+                    "metodo": elegido["metodo"],
+                    "parametros": {"origen": "asistente", "enso": enso_usado},
+                    "periodo_inicio": inicio.isoformat(),
+                    "periodo_fin": fin.isoformat(),
+                    "mae": elegido["mae"],
+                    "rmse": elegido["rmse"],
+                    "r2": None,
+                    "generado_por": getattr(usuario, "id", None),
+                }
+            )
+            .execute()
+        )
+        pid = fila.data[0]["id"]
+        supabase_admin.table("proyeccion_valores").insert([{"proyeccion_id": pid, **v} for v in elegido["proyeccion"]]).execute()
+        return True
+    except Exception:
+        return False
+
+
+def _mejor_rmse(resultado: dict | None) -> float | None:
+    if not resultado:
+        return None
+    r = next((x for x in resultado["resultados"] if x["metodo"] == resultado["mejor_metodo"]), None)
+    return r["rmse"] if r else None
+
+
 def _h_proyectar(slots, ctx, avisos, usuario=None):
     variable = slots.get("variable")
     if not variable:
@@ -239,18 +324,44 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
             avisos=avisos,
         )
 
+    # --- Fenómenos: se prueba la proyección con y sin la fase de El Niño / La Niña y se queda la más fiel
     eventos = listar_eventos()
     actual = evento_actual(eventos)
-    usar_enso = slots.get("usar_enso") is True
-    enso_fn = construir_funcion_enso(eventos) if usar_enso else None
-    varia = enso_varia(list(serie["fecha"]), enso_fn) if usar_enso else None
+    enso_fn = construir_funcion_enso(eventos)
+    varia = enso_varia(list(serie["fecha"]), enso_fn)
+    forzado = slots.get("usar_enso")
 
     try:
-        resultado = comparar_metodos(serie, DIAS_PRUEBA, dias, enso_fn)
+        res_sin = comparar_metodos(serie, DIAS_PRUEBA, dias, None)
     except ValueError as exc:
         return _resp(str(exc), ctx, avisos=avisos)
-    if not resultado["resultados"]:
+    if not res_sin["resultados"]:
         return _resp("Ningún método pudo ejecutarse con los datos disponibles.", ctx, avisos=avisos)
+
+    res_con = None
+    if forzado is not False and varia:
+        try:
+            res_con = comparar_metodos(serie, DIAS_PRUEBA, dias, enso_fn)
+        except ValueError:
+            res_con = None
+
+    rmse_sin, rmse_con = _mejor_rmse(res_sin), _mejor_rmse(res_con)
+    if forzado is True:
+        modo, usar_con = "forzado", res_con is not None
+    elif forzado is False:
+        modo, usar_con = "excluido", False
+    else:
+        modo = "auto"
+        usar_con = bool(res_con and rmse_con is not None and rmse_sin is not None and rmse_con < rmse_sin * (1 - MEJORA_MIN_ENSO))
+    resultado = res_con if usar_con else res_sin
+    enso_info = {
+        "modo": modo,
+        "usado": usar_con,
+        "varia": varia,
+        "evento_actual": actual["nombre"] if actual else None,
+        "rmse_con": rmse_con,
+        "rmse_sin": rmse_sin,
+    }
 
     lista = resultado["resultados"]
     mejor = next((r for r in lista if r["metodo"] == resultado["mejor_metodo"]), None)
@@ -264,9 +375,7 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
     elegido = elegido or mejor or lista[0]
 
     if info["dias_descartados"]:
-        advertencias.append(
-            f"Había un hueco grande de datos: usé solo el último tramo continuo ({info['dias_serie']} días)."
-        )
+        advertencias.append(f"Había un hueco grande de datos: usé solo el último tramo continuo ({info['dias_serie']} días).")
     elif info["dias_faltantes"]:
         advertencias.append(f"Rellené {info['dias_faltantes']} día(s) sin dato por interpolación.")
     if len(serie) < MINIMO_RECOMENDADO_ML:
@@ -274,17 +383,59 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
             f"Solo hay {len(serie)} días de histórico; los modelos de IA rinden mejor con {MINIMO_RECOMENDADO_ML} o más."
         )
 
-    inicio_serie = serie["fecha"].iloc[0].date().isoformat()
-    fin_serie = serie["fecha"].iloc[-1].date().isoformat()
     datos_serie = {
         "dias_serie": len(serie),
-        "inicio": inicio_serie,
-        "fin": fin_serie,
+        "inicio": serie["fecha"].iloc[0].date().isoformat(),
+        "fin": serie["fecha"].iloc[-1].date().isoformat(),
         "reciente": float(serie["valor"].tail(7).mean()),
     }
-    enso_info = {"usado": usar_enso, "varia": varia, "evento_actual": actual["nombre"] if actual else None}
 
-    texto = texto_proyeccion(variable, dias, resultado, elegido, mejor, datos_serie, enso_info, advertencias)
+    # --- Contexto: qué es lo habitual para la época y cómo vienen los últimos meses
+    valores = [p["valor"] for p in elegido["proyeccion"]]
+    promedio = sum(valores) / len(valores)
+    resumen = {
+        "promedio": promedio,
+        "minimo": min(valores),
+        "maximo": max(valores),
+        "reciente": datos_serie["reciente"],
+        "descriptor": descriptor(variable, promedio),
+    }
+    habitual = anomalia_reciente = None
+    try:
+        analisis = analizar_anomalias(df, variable, eventos)
+    except Exception:
+        analisis = None
+    if analisis and analisis["anios_con_datos"] >= 2:
+        mes_proy = int(elegido["proyeccion"][len(valores) // 2]["fecha"][5:7])
+        clim = next((m["climatologia"] for m in analisis["mensual"] if int(m["mes"][5:7]) == mes_proy), None)
+        if clim is not None:
+            habitual = {"valor": round(clim, 2), "mes": nombre_mes(mes_proy), "diferencia": round(promedio - clim, 2)}
+        con_anomalia = [m for m in analisis["mensual"] if m["anomalia"] is not None]
+        if con_anomalia:
+            u = con_anomalia[-1]
+            anomalia_reciente = {"mes": u["mes"], "anomalia": u["anomalia"], "fase": u["fase"]}
+
+    # --- Alertas probables (pronóstico de Open-Meteo, puede no estar disponible sin internet)
+    pron_ok, dias_pron, alertas = _alertas_probables()
+
+    amplitud = _consultar_amplitud() if variable == "temperatura" else None
+    dias_tarjeta = [
+        {
+            "fecha": p["fecha"],
+            "dia": nombre_dia(p["fecha"]),
+            "valor": p["valor"],
+            "descriptor": descriptor(variable, p["valor"]),
+            "max_est": round(p["valor"] + amplitud[0], 1) if amplitud else None,
+            "min_est": round(p["valor"] - amplitud[1], 1) if amplitud else None,
+        }
+        for p in elegido["proyeccion"]
+    ]
+
+    guardada = _guardar_proyeccion(usuario, variable, elegido, inicio, fin, usar_con)
+    justificacion = texto_proyeccion(variable, dias, resultado, elegido, mejor, datos_serie, enso_info, advertencias)
+    if guardada:
+        justificacion += "\nEsta proyección quedó guardada y se incluye en los reportes del mismo período."
+    corto = texto_proyeccion_corto(variable, dias, resumen, habitual, enso_info, alertas if pron_ok else None, pron_ok)
 
     historico = serie.tail(30)
     tarjeta = {
@@ -292,12 +443,20 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
         "variable": variable,
         "unidad": UNIDADES[variable],
         "metodo": elegido["nombre"],
+        "resumen": resumen,
+        "habitual": habitual,
+        "anomalia_reciente": anomalia_reciente,
+        "dias": dias_tarjeta,
+        "rango_estimado": amplitud is not None,
+        "enso": {"usado": usar_con, "evento_actual": enso_info["evento_actual"]},
+        "pronostico": {"ok": pron_ok, "dias": dias_pron, "alertas": alertas},
         "historico": [
             {"fecha": f.date().isoformat(), "valor": round(float(v), 3)}
             for f, v in zip(historico["fecha"], historico["valor"])
         ],
         "proyeccion": elegido["proyeccion"],
         "prueba": elegido["prueba"],
+        "justificacion": justificacion,
         "metodos": [
             {
                 "nombre": r["nombre"],
@@ -311,18 +470,20 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
     }
 
     botones = []
-    if not usar_enso:
-        botones.append(_b("Repetir con El Niño", "repítelo tomando en cuenta El Niño"))
-    botones.append(_b("Explicar los métodos", "explícame los métodos"))
-    botones.append(_b("Generar reporte de este período", "genera un reporte de ese período"))
-    for clave, nombre in OTRAS_VARIABLES[variable]:
+    if alertas:
+        botones.append(_b("Enviarme esta alerta por correo", "envíame las alertas por correo"))
+    botones.append(_b("Fenómenos y anomalías", f"fenómenos y anomalías de {variable.replace('_', ' ')}"))
+    botones.append(_b("Reporte de este período", "genera un reporte de ese período"))
+    for _, nombre in OTRAS_VARIABLES[variable]:
         botones.append(_b(f"Proyectar {nombre.lower()}", f"ahora con {nombre.lower()}"))
 
-    guardado = {"variable": variable, "dias": dias, "periodo": _periodo_explicito(inicio, fin), "usar_enso": usar_enso}
+    guardado = {"variable": variable, "dias": dias, "periodo": _periodo_explicito(inicio, fin)}
+    if forzado is not None:
+        guardado["usar_enso"] = forzado
     if pedido:
         guardado["metodo"] = pedido
     return _resp(
-        texto,
+        corto,
         ctx,
         tarjetas=[tarjeta],
         botones=botones,
@@ -332,56 +493,53 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
 
 
 def _h_fenomenos(slots, ctx, avisos, usuario=None):
+    """Fenómenos (El Niño / La Niña) y anomalías de los datos, juntos en una sola respuesta."""
+    variable = slots.get("variable", "temperatura")
     eventos = listar_eventos()
     actual = evento_actual(eventos)
-    tarjeta = {
-        "tipo": "eventos",
-        "evento_actual": actual["nombre"] if actual else None,
-        "eventos": [
-            {k: e.get(k) for k in ("id", "nombre", "fase", "intensidad", "fecha_inicio", "fecha_fin")} for e in eventos[:6]
-        ],
-        "puede_editar": _es_admin(usuario),
-    }
-    return _resp(
-        texto_eventos(eventos, actual),
-        ctx,
-        tarjetas=[tarjeta],
-        botones=[
-            _b("Anomalías de la temperatura", "¿qué anomalías tuvo la temperatura?"),
-            _b("Proyección con El Niño", "proyecta la temperatura de los próximos 7 días tomando en cuenta El Niño"),
-        ]
-        + ([_b("Registrar un evento", "agrega un evento climático")] if _es_admin(usuario) else []),
-        avisos=avisos,
-    )
+    tarjetas = [
+        {
+            "tipo": "eventos",
+            "evento_actual": actual["nombre"] if actual else None,
+            "eventos": [
+                {k: e.get(k) for k in ("id", "nombre", "fase", "intensidad", "fecha_inicio", "fecha_fin")} for e in eventos[:6]
+            ],
+            "puede_editar": _es_admin(usuario),
+        }
+    ]
+    textos = [texto_eventos(eventos, actual, cierre=False)]
 
-
-def _h_anomalias(slots, ctx, avisos, usuario=None):
-    variable = slots.get("variable", "temperatura")
     hoy = date.today()
     ultima_periodo = ((ctx.get("ultima") or {}).get("slots") or {}).get("periodo")
     inicio, fin = resolver_periodo(slots.get("periodo"), hoy, None, ultima_periodo)
     try:
         df = cargar_serie_diaria(variable, inicio, fin)
+        analisis = analizar_anomalias(df, variable, eventos)
+        tarjetas.append(
+            {
+                "tipo": "anomalias",
+                "variable": variable,
+                "unidad": UNIDADES[variable],
+                "por_fase": analisis["por_fase"],
+                "mensual": analisis["mensual"][-24:],
+            }
+        )
+        textos.append(texto_anomalias(variable, analisis, None))
     except HTTPException as exc:
-        if exc.status_code == 404:
-            return _resp("No encontré datos en ese período para calcular anomalías.", ctx, avisos=avisos)
-        raise
+        if exc.status_code != 404:
+            raise
+        textos.append("Todavía no hay datos suficientes para calcular anomalías. Puedo importarlos de Open-Meteo.")
 
-    eventos = listar_eventos()
-    actual = evento_actual(eventos)
-    analisis = analizar_anomalias(df, variable, eventos)
-    tarjeta = {
-        "tipo": "anomalias",
-        "variable": variable,
-        "unidad": UNIDADES[variable],
-        "por_fase": analisis["por_fase"],
-        "mensual": analisis["mensual"][-24:],
-    }
+    otras = [(v, n) for v, n in OTRAS_VARIABLES[variable]]
+    botones = [_b(f"Ver {n.lower()}", f"fenómenos y anomalías de {v.replace('_', ' ')}") for v, n in otras]
+    botones.append(_b("Proyectar con estos datos", f"proyecta {variable.replace('_', ' ')} de los próximos 7 días"))
+    if _es_admin(usuario):
+        botones.append(_b("Registrar un evento", "agrega un evento climático"))
     return _resp(
-        texto_anomalias(variable, analisis, actual["nombre"] if actual else None),
+        "\n\n".join(textos),
         ctx,
-        tarjetas=[tarjeta],
-        botones=[_b("Proyectar con El Niño", f"proyecta {variable.replace('_', ' ')} tomando en cuenta El Niño")],
+        tarjetas=tarjetas,
+        botones=botones,
         avisos=avisos,
         ultima={"intencion": "anomalias", "slots": {"variable": variable}},
     )
@@ -401,17 +559,7 @@ def _h_alertas(slots, ctx, avisos, usuario=None):
             avisos=avisos,
         )
     alertas = evaluar_pronostico(diario)
-    dias = [
-        {
-            "fecha": f,
-            "lluvia_mm": valor_en(diario.get("precipitation_sum"), i),
-            "prob_lluvia": valor_en(diario.get("precipitation_probability_max"), i),
-            "tmax": valor_en(diario.get("temperature_2m_max"), i),
-            "tmin": valor_en(diario.get("temperature_2m_min"), i),
-            "rafaga": valor_en(diario.get("wind_gusts_10m_max"), i),
-        }
-        for i, f in enumerate(diario.get("time") or [])
-    ]
+    dias = _dias_de(diario)
     return _resp(
         texto_pronostico(dias, alertas),
         ctx,
@@ -459,27 +607,41 @@ def _h_importar(slots, ctx, avisos, usuario=None):
     return _resp(texto, ctx, accion=accion, avisos=notas)
 
 
+FORMATOS_REPORTE = {"pdf": "PDF", "word": "Word", "excel": "Excel"}
+
+
 def _h_reporte(slots, ctx, avisos, usuario=None):
     hoy = date.today()
+    formato = slots.get("formato", "pdf")
     ultima_periodo = ((ctx.get("ultima") or {}).get("slots") or {}).get("periodo")
     inicio, fin = resolver_periodo(slots.get("periodo"), hoy, None, ultima_periodo)
     if inicio is None or fin is None:
-        return _pedir_periodo("¿De qué período quieres el reporte en PDF?", slots, ctx, avisos, "reporte")
+        return _pedir_periodo(
+            f"¿De qué período quieres el reporte en {FORMATOS_REPORTE[formato]}? (También puede ser en Word o Excel.)",
+            slots, ctx, avisos, "reporte",
+        )
     fin = min(fin, hoy)
     if inicio > fin:
         return _pedir_periodo("Las fechas no son válidas. ¿De qué período quieres el reporte?", slots, ctx, avisos, "reporte")
 
     accion = {
         "tipo": "generar_reporte",
-        "params": {"periodo_inicio": inicio.isoformat(), "periodo_fin": fin.isoformat()},
+        "params": {"periodo_inicio": inicio.isoformat(), "periodo_fin": fin.isoformat(), "formato": formato},
         "estado": "pendiente",
-        "descripcion": f"Generar reporte PDF del {_fmt(inicio)} al {_fmt(fin)}",
+        "descripcion": f"Generar reporte {FORMATOS_REPORTE[formato]} del {_fmt(inicio)} al {_fmt(fin)}",
     }
     texto = (
-        f"Voy a generar un reporte en PDF con el resumen histórico y las proyecciones del {_fmt(inicio)} al {_fmt(fin)}. "
-        "Si quieres que incluya tus proyecciones, usa el mismo rango con el que las generaste. ¿Confirmas?"
+        f"Voy a generar un reporte en {FORMATOS_REPORTE[formato]} con el resumen histórico y las proyecciones del "
+        f"{_fmt(inicio)} al {_fmt(fin)}. Incluye las proyecciones generadas con ese mismo período. ¿Confirmas?"
     )
-    return _resp(texto, ctx, accion=accion, avisos=avisos)
+    otros = [(k, v) for k, v in FORMATOS_REPORTE.items() if k != formato]
+    return _resp(
+        texto,
+        ctx,
+        accion=accion,
+        botones=[_b(f"Cambiar a {v}", f"en {v}") for _, v in otros],
+        avisos=avisos,
+    )
 
 
 def _accion_simple(tipo, params, descripcion, texto, ctx, avisos):
@@ -645,6 +807,29 @@ def _h_revisar_alertas(slots, ctx, avisos, usuario=None):
     )
 
 
+def _h_enviar_alerta_correo(slots, ctx, avisos, usuario=None):
+    ok, dias, alertas = _alertas_probables()
+    if not ok:
+        return _resp("No pude consultar el pronóstico (¿sin conexión a internet?). Inténtalo de nuevo en un momento.", ctx, avisos=avisos)
+    if not alertas:
+        return _resp(
+            "Ahora mismo no hay alertas probables en los próximos días, así que no hay nada que enviar. "
+            "Si quieres ver cómo llega un correo, puedo enviarte uno de prueba.",
+            ctx,
+            botones=[_b("Enviarme un correo de prueba", "quiero un correo de prueba de lluvia")],
+            avisos=avisos,
+        )
+    detalle = "; ".join(f"{a['titulo'].lower()} el {a['fecha'][8:10]}/{a['fecha'][5:7]}" for a in alertas[:5])
+    return _accion_simple(
+        "enviar_alerta_actual",
+        {},
+        "Enviarme las alertas actuales por correo",
+        f"Voy a enviar a tu correo las alertas detectadas: {detalle}. ¿Confirmas?",
+        ctx,
+        avisos,
+    )
+
+
 def _h_confirmar(slots, ctx, avisos, usuario=None):
     accion = ctx.get("accion")
     if not accion:
@@ -674,7 +859,8 @@ HANDLERS = {
     "metodos": _h_metodos,
     "proyectar": _h_proyectar,
     "fenomenos": _h_fenomenos,
-    "anomalias": _h_anomalias,
+    "anomalias": _h_fenomenos,  # fenómenos y anomalías se responden juntos
+    "enviar_alerta_correo": _h_enviar_alerta_correo,
     "alertas": _h_alertas,
     "importar": _h_importar,
     "reporte": _h_reporte,
@@ -704,6 +890,15 @@ def despachar(interp: dict, ctx: dict, usuario=None) -> dict:
             base = ctx["ultima"]["slots"]
     elif ctx["intencion_pendiente"] == intencion:
         base = ctx["slots"]
+    if intencion == "reporte" and ctx["accion"] and ctx["accion"]["tipo"] == "generar_reporte":
+        p = ctx["accion"]["params"]
+        try:
+            base = {
+                "periodo": _periodo_explicito(date.fromisoformat(p["periodo_inicio"]), date.fromisoformat(p["periodo_fin"])),
+                "formato": p.get("formato", "pdf") if p.get("formato") in FORMATOS_REPORTE else "pdf",
+            }
+        except (KeyError, ValueError):
+            pass
     slots = fusionar_slots(base, interp["slots"])
     return HANDLERS[intencion](slots, ctx, interp.get("avisos") or [], usuario)
 
