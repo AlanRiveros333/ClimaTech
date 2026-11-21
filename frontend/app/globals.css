@@ -26,6 +26,30 @@
   --color-accent-700: #9a5204;
   /* Fondo de la app */
   --color-canvas: #f3f6f8;
+
+  /* Animaciones de la página de Inicio */
+  --animate-aparecer: aparecer 0.45s ease-out both;
+  --animate-flotar: flotar 6s ease-in-out infinite;
+  --animate-nube-lenta: nube 60s linear infinite;
+  --animate-nube-rapida: nube 38s linear infinite;
+  --animate-pulso-sol: pulso-sol 5s ease-in-out infinite;
+
+  @keyframes aparecer {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes flotar {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes nube {
+    from { transform: translateX(-30%); }
+    to { transform: translateX(130vw); }
+  }
+  @keyframes pulso-sol {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 0.9; transform: scale(1.08); }
+  }
 }
 
 :root {
@@ -34,6 +58,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {

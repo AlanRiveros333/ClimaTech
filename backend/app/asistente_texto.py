@@ -25,6 +25,7 @@ DESCRIPCION_METODO = {
     "regresion_lineal": "Regresión lineal múltiple: ajusta una tendencia en el tiempo y un ciclo anual (estacionalidad) por mínimos cuadrados. Puede incluir la fase de El Niño / La Niña.",
     "random_forest": "Machine Learning (conjunto de árboles de decisión): aprende patrones de los últimos 7 días y de la época del año. Puede incluir la fase de El Niño / La Niña.",
     "gradient_boosting": "Machine Learning: construye árboles de decisión en secuencia, cada uno corrigiendo los errores del anterior. Puede incluir la fase de El Niño / La Niña.",
+    "hibrido_mos": "Modelo híbrido (técnica MOS): toma el pronóstico de Open-Meteo, que simula la atmósfera y anticipa olas de calor o frentes fríos, y lo corrige con un modelo matemático que aprendió cómo se equivoca Open-Meteo en Cochabamba, comparando sus pronósticos pasados con lo medido en la estación del aeropuerto.",
 }
 
 DESCARGO = "Es una estimación estadística basada en el comportamiento pasado, no un pronóstico meteorológico oficial."
@@ -108,6 +109,11 @@ def texto_proyeccion(
     serie: dict,
     enso: dict,
     advertencias: list[str],
+    criterio: str = "error",
+    openmeteo: dict | None = None,
+    correccion: dict | None = None,
+    sin_corregir_pedido: bool = False,
+    mos: dict | None = None,
 ) -> str:
     """Justificación completa (método, error, datos y fenómenos). Se muestra en «¿Cómo lo calculé?»."""
     u = UNIDADES[variable]
@@ -115,7 +121,52 @@ def texto_proyeccion(
 
     n = len(resultado["resultados"])
     dp = resultado["dias_prueba"]
-    if mejor and elegido["metodo"] == mejor["metodo"]:
+    om = openmeteo or {}
+    if criterio == "mos" and mos:
+        crudo = next(o for o in mos["opciones"] if o["metodo"] == "openmeteo_crudo")
+        pd_ = mos["prueba_desde"]
+        lineas.append(
+            f"Por qué lo elegí: usé {mos['fechas']} fechas en las que hay pronóstico pasado de Open-Meteo (de 1 a 7 días de "
+            f"anticipación) y medición de la estación, en tres tramos según el tiempo: con las {mos['fechas_entrenamiento']} más "
+            f"antiguas aprendieron 3 correcciones (regresión lineal, Random Forest y Gradient Boosting); con las "
+            f"{mos['fechas_validacion']} siguientes calculé cómo combinarlas; y con las últimas {mos['fechas_prueba']} "
+            f"(desde el {pd_[8:10]}/{pd_[5:7]}/{pd_[:4]}), que nadie vio antes, califiqué todas las opciones."
+        )
+        lineas.append(
+            f"Error medio contra lo medido: Open-Meteo sin corregir {_f(crudo['mae'], 2)} {u}; la opción elegida "
+            f"{_f(elegido['mae'], 2)} {u} ({mos['mejora_pct']:.0f} % menos)."
+            if mos["elegido"] != "openmeteo_crudo"
+            else f"Ninguna corrección mejoró al pronóstico de Open-Meteo ({_f(crudo['mae'], 2)} {u} de error medio), así que lo usé tal cual."
+        )
+        if mos["elegido"] == "ensamble":
+            mezcla = ", ".join(f"{p['nombre'].replace('Open-Meteo + ', '')} {p['peso'] * 100:.0f} %" for p in mos["pesos"] if p["peso"] >= 0.01)
+            lineas.append(
+                f"La combinación ganó a cada modelo por separado. Mezcla: {mezcla}. Los pesos salen de mínimos cuadrados no "
+                f"negativos (suman 100 %) sobre el tramo más reciente: pesa más el que mejor acertó últimamente."
+            )
+        por_k = next(o for o in mos["opciones"] if o["metodo"] == mos["elegido"])["por_anticipacion"]
+        if por_k:
+            detalle = ", ".join(f"{k} día{'s' if int(k) > 1 else ''}: {v:.1f}" for k, v in sorted(por_k.items(), key=lambda x: int(x[0])))
+            lineas.append(f"Error según la anticipación ({u}): {detalle}. Mientras más lejos, mayor el error.")
+        if elegido.get("relleno"):
+            lineas.append(
+                f"El pronóstico de Open-Meteo cubre {elegido['dias_hibrido']} de los {dias} días; los siguientes los proyecté con "
+                f"{elegido['relleno']}, el mejor método estadístico para esos datos."
+            )
+    elif criterio == "openmeteo":
+        lineas.append(
+            f"Por qué lo elegí: comparé la proyección de los {n} métodos con el pronóstico de Open-Meteo para las mismas "
+            f"fechas ({om.get('dias')} día(s) en común). Open-Meteo usa modelos meteorológicos físicos, que pueden "
+            f"anticipar olas de calor o frentes fríos; los métodos estadísticos solo ven el pasado. {elegido['nombre']} "
+            f"fue el que más se acercó: se diferencia en promedio {_f(elegido.get('dif_openmeteo'), 2)} {u}."
+        )
+        if mejor:
+            lineas.append(
+                f"En la prueba con los últimos {dp} días reales, su error fue MAE {_f(elegido['mae'], 2)} {u} y RMSE "
+                f"{_f(elegido['rmse'], 2)} {u}; el de menor error en esa prueba fue {mejor['nombre']} "
+                f"(RMSE {_f(mejor['rmse'], 2)} {u})."
+            )
+    elif mejor and elegido["metodo"] == mejor["metodo"]:
         lineas.append(
             f"Por qué lo elegí: reservé los últimos {dp} días del histórico como prueba, entrené {n} métodos con el resto "
             f"y este fue el que menos se equivocó: {_f(elegido['mae'], 2)} {u} de error absoluto medio (MAE) y "
@@ -136,8 +187,36 @@ def texto_proyeccion(
             lineas.append("Rinde prácticamente igual que la referencia simple de repetir el último valor.")
         else:
             lineas.append("No mejora a la referencia simple de repetir el último valor.")
-    if not resultado["supera_referencia"]:
+    if not resultado["supera_referencia"] and criterio != "mos":
         lineas.append("Ningún método superó a esa referencia: con estos datos conviene tomar la proyección con mucha cautela.")
+
+    if om.get("ok"):
+        lineas.append(
+            f"Open-Meteo estima un promedio de {_f(om['promedio'])} {u} para esos días."
+            + (
+                f" Ojo: en ClimaTech la temperatura de un día es el PROMEDIO de sus 24 horas; las máximas que muestran "
+                f"las páginas de clima ({_f(om['tmax_min'], 0)} a {_f(om['tmax_max'], 0)} °C según Open-Meteo) son más altas."
+                if variable == "temperatura" and om.get("tmax_max") is not None
+                else ""
+            )
+        )
+    elif criterio != "pedido":
+        lineas.append("No pude consultar el pronóstico de Open-Meteo, así que elegí por el menor error en la prueba.")
+
+    if correccion:
+        lineas.append(
+            f"Corrección con la estación del aeropuerto: antes de proyectar ajusté el historial de Open-Meteo con "
+            f"«{correccion['metodo']}», calculada con {correccion['dias_pares']} días medidos en la estación "
+            f"({correccion['mejora_pct']:.0f} % menos error en la prueba)."
+            + (
+                f" En {correccion['mes']}, Open-Meteo marca en promedio {abs(correccion['sesgo_mes']):.1f} {u} "
+                f"{'menos' if correccion['sesgo_mes'] > 0 else 'más'} que lo medido."
+                if correccion.get("sesgo_mes") is not None
+                else ""
+            )
+        )
+    elif sin_corregir_pedido:
+        lineas.append("Como pediste, usé el historial de Open-Meteo sin la corrección de la estación.")
 
     lineas += [
         "",
@@ -148,7 +227,12 @@ def texto_proyeccion(
         lineas.append(f"Nota: {o['nombre']} no se ejecutó: {o['motivo']}")
     for a in advertencias:
         lineas.append(f"Ojo: {a}")
-    lineas += ["", DESCARGO]
+    lineas += [
+        "",
+        "Combina un pronóstico meteorológico con una corrección estadística; no es un pronóstico oficial."
+        if criterio == "mos"
+        else DESCARGO,
+    ]
     return "\n".join(lineas)
 
 
@@ -160,14 +244,45 @@ def texto_proyeccion_corto(
     enso: dict,
     alertas: list[dict] | None,
     pronostico_ok: bool,
+    elegido: dict | None = None,
+    criterio: str = "error",
+    openmeteo: dict | None = None,
+    correccion: dict | None = None,
+    mos: dict | None = None,
 ) -> str:
     """Resumen breve en lenguaje sencillo, para el mensaje del chat."""
     u = UNIDADES[variable]
     prom = resumen["promedio"]
+    promedio_txt = "la temperatura promedio del día" if variable == "temperatura" else NOMBRE_VARIABLE[variable]
     lineas = [
-        f"Proyección de {NOMBRE_VARIABLE[variable]} para los próximos {dias} día(s): promedio de "
+        f"Proyección de {promedio_txt} para los próximos {dias} día(s): promedio de "
         f"{_f(prom)} {u} ({descriptor(variable, prom).lower()}), con valores entre {_f(resumen['minimo'])} y {_f(resumen['maximo'])} {u}."
     ]
+    if correccion and correccion.get("sesgo_mes") is not None and abs(correccion["sesgo_mes"]) >= 0.1:
+        lineas.append(
+            f"El historial está corregido con las mediciones de la estación del aeropuerto "
+            f"(en {correccion['mes']} Open-Meteo suele marcar {abs(correccion['sesgo_mes']):.1f} {u} "
+            f"{'menos' if correccion['sesgo_mes'] > 0 else 'más'} de lo medido)."
+        )
+    om = openmeteo or {}
+    if om.get("ok"):
+        texto_om = f"El pronóstico de Open-Meteo para esas fechas da un promedio de {_f(om['promedio'])} {u}"
+        if variable == "temperatura" and om.get("tmax_max") is not None:
+            texto_om += f", con máximas de {_f(om['tmax_min'], 0)} a {_f(om['tmax_max'], 0)} °C"
+        lineas.append(texto_om + ".")
+        if criterio == "mos" and elegido and mos and mos["elegido"] != "openmeteo_crudo":
+            crudo = next(o for o in mos["opciones"] if o["metodo"] == "openmeteo_crudo")
+            lineas.append(
+                f"Usé el modelo híbrido: el pronóstico de Open-Meteo corregido por IA con lo medido en la estación del "
+                f"aeropuerto{', combinando varios modelos según su acierto reciente' if mos['elegido'] == 'ensamble' else ''}. "
+                f"En la prueba se equivocó {_f(elegido['mae'])} {u} en promedio, frente a {_f(crudo['mae'])} {u} "
+                f"de Open-Meteo sin corregir."
+            )
+        elif criterio == "openmeteo" and elegido:
+            lineas.append(
+                f"Usé {elegido['nombre']} porque es el método que más se acerca a ese pronóstico "
+                f"(diferencia media de {_f(elegido.get('dif_openmeteo'))} {u})."
+            )
     if habitual:
         d = habitual["diferencia"]
         if abs(d) < 0.3 * (1 if variable == "temperatura" else 3):

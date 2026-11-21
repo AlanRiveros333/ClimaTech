@@ -15,6 +15,7 @@ PARAMETROS_DIARIOS = (
     "temperature_2m_max",
     "temperature_2m_min",
     "wind_gusts_10m_max",
+    "weather_code",  # estado del cielo (código WMO), para los íconos del pronóstico
 )
 
 UMBRALES = {

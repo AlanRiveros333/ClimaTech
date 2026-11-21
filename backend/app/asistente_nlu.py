@@ -49,6 +49,8 @@ INTENCIONES = (
     "revisar_alertas",
     "historial_alertas",
     "enviar_alerta_correo",
+    "estacion",
+    "importar_estacion",
 )
 ACCIONES = (
     "enviar_alerta_actual",
@@ -58,6 +60,7 @@ ACCIONES = (
     "activar_alertas",
     "desactivar_alertas",
     "enviar_prueba_alerta",
+    "importar_estacion",
 )
 
 MAX_DIAS_PROYECTAR = 30
@@ -263,6 +266,10 @@ def extraer_slots(t: str, hoy: date) -> tuple[dict, list[str]]:
     elif _tiene(t, r"\b(nino|nina|enso|supernino|fenomenos?|eventos? climaticos?)\b"):
         slots["usar_enso"] = True
 
+    # «sin corrección» / «sin la estación»: proyectar con Open-Meteo tal cual, para comparar
+    if _tiene(t, r"\bsin (la |usar |aplicar )?(correccion|corregir|estacion|ajuste)\b"):
+        slots["corregir"] = False
+
     for metodo, patron in _METODOS_RE.items():
         if _tiene(t, patron):
             slots["metodo"] = metodo
@@ -347,7 +354,7 @@ def sanear_slots(s: Any) -> dict:
         out["cantidad"] = s["cantidad"]
     if s.get("formato") in ("pdf", "word", "excel"):
         out["formato"] = s["formato"]
-    for clave in ("simular", "a_suscriptores"):
+    for clave in ("simular", "a_suscriptores", "corregir"):
         if isinstance(s.get(clave), bool):
             out[clave] = s[clave]
     valores = _sanear_valores(s.get("valores"))
@@ -492,12 +499,17 @@ P_ANOMALIAS = r"\banomal\w*"
 P_ALERTA_PALABRAS = r"\b(alertas?|avis\w+|llover|llueve|lluvia|lluvias|helada|heladas|granizo|torrencial|pronostico)\b"
 P_ENSO = r"\b(nino|nina|enso|supernino|fenomenos?|eventos? climaticos?)\b|\bevento en curso\b"
 P_SEGUIMIENTO_ENSO = r"\b(incluy\w*|con|tomando|toma|considera\w*|repite|repetir|otra vez|de nuevo|ahora)\b"
+P_ESTACION = (
+    r"\b(estacion|aeropuerto|slcb|metar|sesgo)\b|\bcorreccion\b|\bdatos? (reales|medidos)\b|\blo medido\b|"
+    r"\bque tan (acertad\w*|precis\w*|exact\w*)\b|\b(verifica\w*|acierto|aciertan|acerto|acertaron)\b"
+)
+P_VERIFICAR = r"\bque tan (acertad\w*|precis\w*|exact\w*)\b|\b(verifica\w*|acierto|aciertan|acerto|acertaron)\b"
 P_AYUDA = (
     r"\b(hola|buenas|ayuda|ayudame|opciones|menu|empezar|inicio)\b|buen dia|buenos dias|buenas tardes|"
     r"buenas noches|que puedes|que sabes|que haces"
 )
 
-_SLOTS_DATOS = ("variable", "dias", "periodo", "usar_enso", "metodo", "tipo_alerta", "valores", "cantidad", "formato")
+_SLOTS_DATOS = ("variable", "dias", "periodo", "usar_enso", "metodo", "tipo_alerta", "valores", "cantidad", "formato", "corregir")
 
 
 def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
@@ -530,6 +542,12 @@ def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
         return r("reporte", seguimiento=True)
     if _tiene(t, P_REPORTE):
         return r("mis_reportes" if _tiene(t, P_MIS_REPORTES) else "reporte")
+    if slots.get("corregir") is False and (ctx["ultima"] or {}).get("intencion") == "proyectar" and not _tiene(t, P_PROYECTAR):
+        return r("proyectar", seguimiento=True)  # «ahora sin corrección»
+    if _tiene(t, P_ESTACION) and (not _tiene(t, P_PROYECTAR) or _tiene(t, P_VERIFICAR)):
+        if _tiene(t, P_IMPORTAR) and _tiene(t, r"\b(estacion|aeropuerto|slcb|metar)\b"):
+            return r("importar_estacion")
+        return r("estacion")
     if _tiene(t, P_IMPORTAR) and (_tiene(t, r"\bimporta\w*") or _tiene(t, P_DATOS)):
         return r("importar")
     if _tiene(t, P_ALERTA) or _tiene(t, r"\bcorreos?\b"):

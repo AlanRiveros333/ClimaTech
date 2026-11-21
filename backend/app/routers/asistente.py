@@ -43,7 +43,10 @@ from app.asistente_texto import (
 )
 from app.auth import UsuarioActual, get_current_user, supabase_admin
 from app.datos import cargar_serie_diaria, listar_eventos
-from app.ia_modelos import comparar_metodos, enso_varia, preparar_serie
+from app.ia_modelos import METODOS, comparar_metodos, enso_varia, preparar_serie
+from app.pronostico_openmeteo import distancia, obtener_referencia
+from app import estacion as modulo_estacion
+from app import mos as modulo_mos
 from app.routers import alertas as modulo_alertas
 
 router = APIRouter(prefix="/asistente", tags=["asistente"])
@@ -53,6 +56,7 @@ DIAS_HISTORICO_DEFECTO = 730
 MAX_DIAS_IMPORTACION = 366
 MINIMO_RECOMENDADO_ML = 90
 MEJORA_MIN_ENSO = 0.02  # la fase El Niño/La Niña se usa solo si baja el error al menos un 2 %
+MIN_DIAS_OPENMETEO = 3  # días en común con Open-Meteo para elegir el método más cercano
 
 OTRAS_VARIABLES = {
     "temperatura": [("humedad", "Humedad"), ("velocidad_viento", "Viento")],
@@ -217,6 +221,7 @@ def _dias_de(diario: dict) -> list[dict]:
             "tmax": valor_en(diario.get("temperature_2m_max"), i),
             "tmin": valor_en(diario.get("temperature_2m_min"), i),
             "rafaga": valor_en(diario.get("wind_gusts_10m_max"), i),
+            "codigo": valor_en(diario.get("weather_code"), i),
         }
         for i, f in enumerate(diario.get("time") or [])
     ]
@@ -253,7 +258,7 @@ def _consultar_amplitud() -> tuple[float, float] | None:
     return float((d["temperatura_max"] - d["temperatura"]).mean()), float((d["temperatura"] - d["temperatura_min"]).mean())
 
 
-def _guardar_proyeccion(usuario, variable: str, elegido: dict, inicio: date, fin: date, enso_usado: bool) -> bool:
+def _guardar_proyeccion(usuario, variable: str, elegido: dict, inicio: date, fin: date, enso_usado: bool, corregida: bool = False) -> bool:
     """Guarda la proyección como hacía la pantalla de Proyecciones, para que los reportes la incluyan."""
     try:
         fila = (
@@ -262,7 +267,7 @@ def _guardar_proyeccion(usuario, variable: str, elegido: dict, inicio: date, fin
                 {
                     "variable": variable,
                     "metodo": elegido["metodo"],
-                    "parametros": {"origen": "asistente", "enso": enso_usado},
+                    "parametros": {"origen": "asistente", "enso": enso_usado, "correccion_estacion": corregida},
                     "periodo_inicio": inicio.isoformat(),
                     "periodo_fin": fin.isoformat(),
                     "mae": elegido["mae"],
@@ -313,6 +318,15 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
         if exc.status_code == 404:
             return _sin_datos(variable, inicio, fin, ctx, avisos)
         raise
+
+    # --- Corrección con la estación del aeropuerto: el historial de Open-Meteo se ajusta a lo medido
+    # (si hay mediciones importadas y la corrección mejora en la prueba). «sin corrección» la desactiva.
+    correccion = None
+    if slots.get("corregir") is not False:
+        c = modulo_estacion.obtener_correccion(variable)
+        if c and c["elegido"] != "sin_correccion":
+            correccion = c
+            df = modulo_estacion.corregir_serie(df, variable, c["modelo"])
 
     serie, info = preparar_serie(df, variable)
     if len(serie) < DIAS_PRUEBA + 5:
@@ -368,11 +382,70 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
     pedido = slots.get("metodo")
     elegido = next((r for r in lista if r["metodo"] == pedido), None)
 
+    # --- Referencia externa: pronóstico de Open-Meteo (modelo meteorológico físico) para las mismas fechas.
+    # Se mide qué tan cerca queda cada método y, si el usuario no pidió uno, se usa el más cercano.
+    referencia = obtener_referencia([p["fecha"] for p in lista[0]["proyeccion"]])
+    cercano = None
+    if referencia:
+        for r in lista:
+            d = distancia(r["proyeccion"], referencia, variable)
+            r["dif_openmeteo"], r["dias_openmeteo"] = d if d else (None, 0)
+        comparables = [r for r in lista if r["dif_openmeteo"] is not None and r["dias_openmeteo"] >= MIN_DIAS_OPENMETEO]
+        cercano = min(comparables, key=lambda r: r["dif_openmeteo"]) if comparables else None
+
+    # --- Modelo híbrido (MOS): el pronóstico de Open-Meteo corregido por un modelo que aprendió, con
+    # pronósticos pasados y lo medido en la estación, cómo se equivoca Open-Meteo en Cochabamba.
+    # Cubre los días que alcanza el pronóstico (hasta 16); los días siguientes los completa el mejor método estadístico.
+    hibrido, mos = None, None
+    if referencia and slots.get("corregir") is not False:
+        mos = modulo_mos.obtener_mos(variable)
+        if mos:
+            relleno = cercano or mejor or lista[0]
+            pred = modulo_mos.predecir(mos, referencia, [p["fecha"] for p in relleno["proyeccion"]], variable)
+            if len(pred) >= MIN_DIAS_OPENMETEO:
+                opcion = next(o for o in mos["opciones"] if o["metodo"] == mos["elegido"])
+                hibrido = {
+                    "metodo": "hibrido_mos",
+                    "nombre": f"Híbrido: {opcion['nombre']}",
+                    "es_ml": True,
+                    "mae": opcion["mae"],
+                    "rmse": opcion["rmse"],
+                    "prueba": mos["muestra"],
+                    "proyeccion": [{"fecha": p["fecha"], "valor": pred.get(p["fecha"], p["valor"])} for p in relleno["proyeccion"]],
+                    "mejora_vs_referencia_pct": None,
+                    "dias_hibrido": len(pred),
+                    "relleno": relleno["nombre"] if len(pred) < len(relleno["proyeccion"]) else None,
+                }
+                d = distancia(hibrido["proyeccion"], referencia, variable)
+                hibrido["dif_openmeteo"], hibrido["dias_openmeteo"] = d if d else (None, 0)
+                lista.append(hibrido)
+
     advertencias: list[str] = []
     if pedido and elegido is None:
         motivo = next((o["motivo"] for o in resultado["omitidos"] if o["metodo"] == pedido), "no se pudo ejecutar")
         advertencias.append(f"No pude usar el método que pediste: {motivo}")
-    elegido = elegido or mejor or lista[0]
+    if elegido:
+        criterio = "pedido"
+    elif hibrido:
+        elegido, criterio = hibrido, "mos"
+    elif cercano:
+        elegido, criterio = cercano, "openmeteo"
+    else:
+        elegido, criterio = (mejor or lista[0]), "error"
+
+    om_valores = [referencia[p["fecha"]][variable] for p in elegido["proyeccion"]
+                  if referencia and p["fecha"] in referencia and referencia[p["fecha"]].get(variable) is not None]
+    om_tmax = [referencia[p["fecha"]]["tmax"] for p in elegido["proyeccion"]
+               if referencia and p["fecha"] in referencia and referencia[p["fecha"]].get("tmax") is not None]
+    openmeteo = {
+        "ok": bool(om_valores),
+        "dias": len(om_valores),
+        "promedio": round(sum(om_valores) / len(om_valores), 2) if om_valores else None,
+        "tmax_min": min(om_tmax) if om_tmax else None,
+        "tmax_max": max(om_tmax) if om_tmax else None,
+        "dif_elegido": elegido.get("dif_openmeteo"),
+        "cercano": cercano["nombre"] if cercano else None,
+    }
 
     if info["dias_descartados"]:
         advertencias.append(f"Había un hueco grande de datos: usé solo el último tramo continuo ({info['dias_serie']} días).")
@@ -427,15 +500,48 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
             "descriptor": descriptor(variable, p["valor"]),
             "max_est": round(p["valor"] + amplitud[0], 1) if amplitud else None,
             "min_est": round(p["valor"] - amplitud[1], 1) if amplitud else None,
+            # Cielo y valores del pronóstico de Open-Meteo para ese día (None si no lo cubre)
+            "om": (
+                {
+                    "valor": referencia[p["fecha"]].get(variable),
+                    "tmax": referencia[p["fecha"]].get("tmax"),
+                    "tmin": referencia[p["fecha"]].get("tmin"),
+                    "codigo": referencia[p["fecha"]].get("codigo"),
+                    "lluvia_mm": referencia[p["fecha"]].get("lluvia_mm"),
+                    "prob_lluvia": referencia[p["fecha"]].get("prob_lluvia"),
+                }
+                if referencia and p["fecha"] in referencia
+                else None
+            ),
         }
         for p in elegido["proyeccion"]
     ]
 
-    guardada = _guardar_proyeccion(usuario, variable, elegido, inicio, fin, usar_con)
-    justificacion = texto_proyeccion(variable, dias, resultado, elegido, mejor, datos_serie, enso_info, advertencias)
+    guardada = _guardar_proyeccion(usuario, variable, elegido, inicio, fin, usar_con, corregida=correccion is not None)
+    correccion_info = None
+    if correccion:
+        mes_proy = int(elegido["proyeccion"][len(elegido["proyeccion"]) // 2]["fecha"][5:7])
+        fila_mes = next((m for m in correccion["mensual"] if m["mes"] == mes_proy), None)
+        opcion = next(o for o in correccion["opciones"] if o["metodo"] == correccion["elegido"])
+        correccion_info = {
+            "metodo": opcion["nombre"],
+            "mejora_pct": correccion["mejora_pct"],
+            "sesgo_mes": fila_mes["sesgo"] if fila_mes else None,
+            "mes": nombre_mes(mes_proy),
+            "dias_pares": correccion["dias_pares"],
+        }
+    justificacion = texto_proyeccion(
+        variable, dias, resultado, elegido, mejor, datos_serie, enso_info, advertencias, criterio=criterio, openmeteo=openmeteo,
+        correccion=correccion_info, sin_corregir_pedido=slots.get("corregir") is False,
+        mos=modulo_mos.informe_publico(mos) if mos and criterio == "mos" else None,
+    )
     if guardada:
         justificacion += "\nEsta proyección quedó guardada y se incluye en los reportes del mismo período."
-    corto = texto_proyeccion_corto(variable, dias, resumen, habitual, enso_info, alertas if pron_ok else None, pron_ok)
+    corto = texto_proyeccion_corto(
+        variable, dias, resumen, habitual, enso_info, alertas if pron_ok else None, pron_ok,
+        elegido=elegido, criterio=criterio, openmeteo=openmeteo, correccion=correccion_info,
+        mos=modulo_mos.informe_publico(mos) if mos and criterio == "mos" else None,
+    )
 
     historico = serie.tail(30)
     tarjeta = {
@@ -455,6 +561,23 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
             for f, v in zip(historico["fecha"], historico["valor"])
         ],
         "proyeccion": elegido["proyeccion"],
+        "openmeteo": openmeteo,
+        "criterio": criterio,
+        "correccion": correccion_info,
+        "hibrido": (
+            {
+                "modelo": next(o["nombre"] for o in mos["opciones"] if o["metodo"] == mos["elegido"]),
+                "mae": elegido["mae"],
+                "mae_openmeteo": next(o["mae"] for o in mos["opciones"] if o["metodo"] == "openmeteo_crudo"),
+                "mejora_pct": mos["mejora_pct"],
+                "fechas": mos["fechas"],
+                "dias_hibrido": elegido["dias_hibrido"],
+                "relleno": elegido["relleno"],
+                "pesos": mos["pesos"] if mos["elegido"] == "ensamble" else None,
+            }
+            if criterio == "mos"
+            else None
+        ),
         "prueba": elegido["prueba"],
         "justificacion": justificacion,
         "metodos": [
@@ -464,6 +587,8 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
                 "rmse": r["rmse"],
                 "elegido": r["metodo"] == elegido["metodo"],
                 "mejor": bool(mejor and r["metodo"] == mejor["metodo"]),
+                "dif_openmeteo": r.get("dif_openmeteo"),
+                "cercano": bool(cercano and r["metodo"] == cercano["metodo"]),
             }
             for r in lista
         ],
@@ -482,6 +607,10 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
         guardado["usar_enso"] = forzado
     if pedido:
         guardado["metodo"] = pedido
+    if slots.get("corregir") is False:
+        guardado["corregir"] = False
+    elif correccion_info or criterio == "mos":
+        botones.append(_b("Comparar sin corrección", "ahora sin corrección"))
     return _resp(
         corto,
         ctx,
@@ -830,6 +959,92 @@ def _h_enviar_alerta_correo(slots, ctx, avisos, usuario=None):
     )
 
 
+def _primera_fecha() -> date | None:
+    filas = supabase_admin.table("registros_diarios").select("fecha").order("fecha").limit(1).execute().data
+    return date.fromisoformat(filas[0]["fecha"]) if filas else None
+
+
+def _h_importar_estacion(slots, ctx, avisos, usuario=None):
+    """Propone descargar las mediciones de la estación del aeropuerto para el mismo período del historial."""
+    if not _es_admin(usuario):
+        return _solo_admin(ctx, avisos)
+    ultimo, primero = _ultima_fecha(), _primera_fecha()
+    if ultimo is None or primero is None:
+        return _resp("Primero necesito el historial de Open-Meteo para saber qué período comparar.", ctx, avisos=avisos)
+    fin = min(ultimo, date.today() - timedelta(days=1))
+    inicio = max(primero, fin - timedelta(days=366 * 6 - 1))
+    return _accion_simple(
+        "importar_estacion",
+        {"fecha_inicio": inicio.isoformat(), "fecha_fin": fin.isoformat()},
+        f"Importar mediciones de la estación del aeropuerto del {_fmt(inicio)} al {_fmt(fin)}",
+        f"Voy a descargar los reportes horarios de la estación del {modulo_estacion.NOMBRE_ESTACION} del {_fmt(inicio)} "
+        f"al {_fmt(fin)} (el mismo período de tu historial) y guardar un resumen por día. Puede tardar un minuto. ¿Confirmas?",
+        ctx,
+        avisos,
+    )
+
+
+def _h_estacion(slots, ctx, avisos, usuario=None):
+    """Impacto de corregir Open-Meteo con la estación del aeropuerto."""
+    variable = slots.get("variable", "temperatura")
+    try:
+        pares = modulo_estacion.pares_open_meteo_estacion(variable)
+    except Exception:
+        pares = None
+    if pares is None or pares.empty:
+        return _resp(
+            "Todavía no hay mediciones de la estación del aeropuerto guardadas. Con ellas puedo medir cuánto se desvía "
+            "el historial de Open-Meteo y corregirlo. (Si es la primera vez, ejecuta antes la migración 005 en Supabase.)",
+            ctx,
+            botones=[_b("Importar datos de la estación", "importa los datos de la estación del aeropuerto")],
+            avisos=avisos,
+        )
+    try:
+        r = modulo_estacion.evaluar_correccion(pares, variable)
+    except ValueError as exc:
+        return _resp(str(exc), ctx, botones=[_b("Importar datos de la estación", "importa los datos de la estación del aeropuerto")], avisos=avisos)
+    r["verificacion"] = modulo_estacion.verificar_proyecciones(variable)
+    mos = modulo_mos.obtener_mos(variable)
+    r["mos"] = modulo_mos.informe_publico(mos) if mos else None
+    u = UNIDADES[variable]
+    base = next(o for o in r["opciones"] if o["metodo"] == "sin_correccion")
+    mejor = r["opciones"][0]
+    lineas = [
+        f"Comparé {r['dias_pares']} días en los que hay dato de Open-Meteo y de la estación del aeropuerto.",
+        f"Sin corregir, Open-Meteo se desvía en promedio {base['mae']:.1f} {u} de lo medido "
+        f"(y en general marca {abs(base['sesgo']):.1f} {u} {'menos' if base['sesgo'] > 0 else 'más'}).",
+    ]
+    if mejor["metodo"] == "sin_correccion":
+        lineas.append("Ninguna corrección mejoró en la prueba, así que las proyecciones siguen usando Open-Meteo tal cual.")
+    else:
+        lineas.append(
+            f"Con «{mejor['nombre']}» el error baja a {mejor['mae']:.1f} {u} ({r['mejora_pct']:.0f} % menos), medido en "
+            f"los últimos {r['dias_prueba']} días, que no se usaron para calcularla. Desde ahora las proyecciones la usan."
+        )
+    if r["mos"]:
+        m = r["mos"]
+        crudo = next(o for o in m["opciones"] if o["metodo"] == "openmeteo_crudo")
+        mejor_m = m["opciones"][0]
+        if mejor_m["metodo"] == "openmeteo_crudo":
+            lineas.append(f"Modelo híbrido: el pronóstico de Open-Meteo sin corregir fue el más preciso ({crudo['mae']:.1f} {u}); se usa tal cual.")
+        else:
+            lineas.append(
+                f"Modelo híbrido: el pronóstico de Open-Meteo se equivocó {crudo['mae']:.1f} {u} en promedio; corregido con "
+                f"«{mejor_m['nombre']}» baja a {mejor_m['mae']:.1f} {u} ({m['mejora_pct']:.0f} % menos), en {m['fechas_prueba']} fechas no vistas."
+            )
+    if r["verificacion"]:
+        v = r["verificacion"][0]
+        nombre_v = METODOS[v["metodo"]][0] if v["metodo"] in METODOS else ("el modelo híbrido Open-Meteo + IA" if v["metodo"] == "hibrido_mos" else v["metodo"])
+        lineas.append(f"De las proyecciones guardadas, la que menos se equivocó frente a lo medido fue {nombre_v}, con un error medio de {v['mae']:.1f} {u}.")
+    tarjeta = {"tipo": "estacion", "unidad": u, "nombre_estacion": modulo_estacion.NOMBRE_ESTACION, **{k: r[k] for k in (
+        "variable", "dias_pares", "desde", "hasta", "dias_prueba", "prueba_desde", "opciones", "elegido", "mejora_pct", "mensual", "verificacion", "mos")}}
+    botones = [_b(f"Proyectar {variable.replace('_', ' ')}", f"proyecta {variable.replace('_', ' ')} de los próximos 7 días")]
+    for otra, nombre in OTRAS_VARIABLES[variable]:
+        botones.append(_b(f"Impacto en {nombre.lower()}", f"impacto de la estación en {nombre.lower()}"))
+    botones.append(_b("Actualizar datos de la estación", "importa los datos de la estación del aeropuerto"))
+    return _resp("\n".join(lineas), ctx, tarjetas=[tarjeta], botones=botones, avisos=avisos)
+
+
 def _h_confirmar(slots, ctx, avisos, usuario=None):
     accion = ctx.get("accion")
     if not accion:
@@ -873,6 +1088,8 @@ HANDLERS = {
     "nuevo_evento": _h_nuevo_evento,
     "mis_reportes": _h_mis_reportes,
     "historial_alertas": _h_historial_alertas,
+    "estacion": _h_estacion,
+    "importar_estacion": _h_importar_estacion,
     "revisar_alertas": _h_revisar_alertas,
     "confirmar": _h_confirmar,
     "cancelar": _h_cancelar,
