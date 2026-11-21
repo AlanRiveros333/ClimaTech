@@ -51,6 +51,7 @@ INTENCIONES = (
     "enviar_alerta_correo",
     "estacion",
     "importar_estacion",
+    "actualizar_datos",
 )
 ACCIONES = (
     "enviar_alerta_actual",
@@ -61,6 +62,7 @@ ACCIONES = (
     "desactivar_alertas",
     "enviar_prueba_alerta",
     "importar_estacion",
+    "actualizar_datos",
 )
 
 MAX_DIAS_PROYECTAR = 30
@@ -503,6 +505,7 @@ P_ESTACION = (
     r"\b(estacion|aeropuerto|slcb|metar|sesgo)\b|\bcorreccion\b|\bdatos? (reales|medidos)\b|\blo medido\b|"
     r"\bque tan (acertad\w*|precis\w*|exact\w*)\b|\b(verifica\w*|acierto|aciertan|acerto|acertaron)\b"
 )
+P_ACTUALIZAR = r"\bactualiza\w*\b"
 P_VERIFICAR = r"\bque tan (acertad\w*|precis\w*|exact\w*)\b|\b(verifica\w*|acierto|aciertan|acerto|acertaron)\b"
 P_AYUDA = (
     r"\b(hola|buenas|ayuda|ayudame|opciones|menu|empezar|inicio)\b|buen dia|buenos dias|buenas tardes|"
@@ -542,6 +545,8 @@ def interpretar(texto: str, ctx: Any = None, hoy: date | None = None) -> dict:
         return r("reporte", seguimiento=True)
     if _tiene(t, P_REPORTE):
         return r("mis_reportes" if _tiene(t, P_MIS_REPORTES) else "reporte")
+    if _tiene(t, P_ACTUALIZAR) and not slots.get("periodo") and not _tiene(t, r"\b(estacion|aeropuerto|slcb|metar)\b"):
+        return r("actualizar_datos")
     if slots.get("corregir") is False and (ctx["ultima"] or {}).get("intencion") == "proyectar" and not _tiene(t, P_PROYECTAR):
         return r("proyectar", seguimiento=True)  # «ahora sin corrección»
     if _tiene(t, P_ESTACION) and (not _tiene(t, P_PROYECTAR) or _tiene(t, P_VERIFICAR)):

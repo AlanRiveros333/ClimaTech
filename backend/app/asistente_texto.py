@@ -128,7 +128,8 @@ def texto_proyeccion(
         lineas.append(
             f"Por qué lo elegí: usé {mos['fechas']} fechas en las que hay pronóstico pasado de Open-Meteo (de 1 a 7 días de "
             f"anticipación) y medición de la estación, en tres tramos según el tiempo: con las {mos['fechas_entrenamiento']} más "
-            f"antiguas aprendieron 3 correcciones (regresión lineal, Random Forest y Gradient Boosting); con las "
+            f"antiguas aprendieron las correcciones (regresión lineal, Random Forest y Gradient Boosting, con un solo modelo "
+            f"meteorológico y con varios); con las "
             f"{mos['fechas_validacion']} siguientes calculé cómo combinarlas; y con las últimas {mos['fechas_prueba']} "
             f"(desde el {pd_[8:10]}/{pd_[5:7]}/{pd_[:4]}), que nadie vio antes, califiqué todas las opciones."
         )
@@ -138,6 +139,18 @@ def texto_proyeccion(
             if mos["elegido"] != "openmeteo_crudo"
             else f"Ninguna corrección mejoró al pronóstico de Open-Meteo ({_f(crudo['mae'], 2)} {u} de error medio), así que lo usé tal cual."
         )
+        nombres_mod = [m["nombre"] for m in mos.get("modelos", [])]
+        if len(nombres_mod) > 1:
+            lineas.append(f"Modelos meteorológicos usados ({len(nombres_mod)}): {', '.join(nombres_mod)}.")
+            if mos.get("descartados"):
+                lineas.append(f"Descartados por no tener suficientes datos para Cochabamba: {', '.join(mos['descartados'])}.")
+            imp = mos.get("impacto_modelos")
+            if imp:
+                lineas.append(
+                    f"Con un solo modelo, la mejor corrección se equivocó {_f(imp['un_modelo']['mae'], 2)} {u}; con varios, "
+                    f"{_f(imp['varios_modelos']['mae'], 2)} {u}"
+                    + (f" ({imp['mejora_pct']:.0f} % menos)." if imp["mejora_pct"] > 0 else " (no mejoró, por eso no se usan).")
+                )
         if mos["elegido"] == "ensamble":
             mezcla = ", ".join(f"{p['nombre'].replace('Open-Meteo + ', '')} {p['peso'] * 100:.0f} %" for p in mos["pesos"] if p["peso"] >= 0.01)
             lineas.append(

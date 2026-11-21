@@ -113,3 +113,80 @@ def distancia(proyeccion: list[dict], referencia: dict[str, dict], variable: str
     if not pares:
         return None
     return round(sum(abs(a - b) for a, b in pares) / len(pares), 3), len(pares)
+
+
+# ------------------------------------------------------------------ varios modelos meteorológicos
+_cache_multi: dict[tuple, tuple[float, dict]] = {}
+CACHE_MULTI_SEGUNDOS = 1800  # los modelos se actualizan cada ~6 horas
+
+
+def _pronostico_de_modelo(modelo: str, inicio: date, fin: date, timeout: float) -> dict[str, dict]:
+    """{fecha: {variable: {media, maxima, minima}}} con el pronóstico actual de UN modelo."""
+    r = httpx.get(
+        FORECAST_URL,
+        params={
+            "latitude": LATITUD_COCHABAMBA,
+            "longitude": LONGITUD_COCHABAMBA,
+            "hourly": ",".join(HORARIAS.values()),
+            "models": modelo,
+            "timezone": "America/La_Paz",
+            "start_date": inicio.isoformat(),
+            "end_date": fin.isoformat(),
+        },
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    h = r.json().get("hourly") or {}
+    sufijo = f"_{modelo}"
+    series = {(k[: -len(sufijo)] if k.endswith(sufijo) else k): v for k, v in h.items() if k != "time"}
+    acum: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for i, instante in enumerate(h.get("time") or []):
+        for variable, campo in HORARIAS.items():
+            v = _ix(series.get(campo), i)
+            if v is not None:
+                acum[instante[:10]][variable].append(float(v))
+    salida: dict[str, dict] = {}
+    for dia, por_var in acum.items():
+        for variable, xs in por_var.items():
+            if len(xs) >= 20:
+                salida.setdefault(dia, {})[variable] = {
+                    "media": round(sum(xs) / len(xs), 2),
+                    "maxima": round(max(xs), 2),
+                    "minima": round(min(xs), 2),
+                }
+    return salida
+
+
+def obtener_multimodelo(fechas: list[str], modelos: list[str], timeout: float = 10.0) -> dict[str, dict]:
+    """
+    Pronóstico actual de cada modelo para las fechas dadas: {fecha: {modelo: {variable: {media, maxima, minima}}}}.
+    Las consultas van en paralelo; un modelo que falla o no cubre una fecha simplemente no aparece.
+    """
+    if not fechas or not modelos:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    hoy = date.today()
+    inicio = max(date.fromisoformat(fechas[0]), hoy - timedelta(days=DIAS_PASADOS_MAX))
+    fin = min(date.fromisoformat(fechas[-1]), hoy + timedelta(days=DIAS_FUTUROS_MAX))
+    if fin < inicio:
+        return {}
+    clave = (inicio, fin, tuple(modelos))
+    guardado = _cache_multi.get(clave)
+    if guardado and time.time() - guardado[0] < CACHE_MULTI_SEGUNDOS:
+        return guardado[1]
+
+    def uno(m):
+        try:
+            return m, _pronostico_de_modelo(m, inicio, fin, timeout)
+        except Exception:
+            return m, {}
+
+    salida: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(modelos))) as ex:
+        for m, por_fecha in ex.map(uno, modelos):
+            for f, datos in por_fecha.items():
+                salida.setdefault(f, {})[m] = datos
+    _cache_multi[clave] = (time.time(), salida)
+    return salida

@@ -39,6 +39,14 @@ type DiaProy = {
   max_est: number | null
   min_est: number | null
   om?: DiaOM | null
+  acuerdo?: {
+    modelos: number
+    minimo: number
+    maximo: number
+    dispersion: number
+    confianza: 'alta' | 'media' | 'baja'
+    valores: Record<string, number>
+  } | null
 }
 type DiaPron = {
   fecha: string
@@ -83,6 +91,8 @@ type TarjetaProyeccion = {
     dias_hibrido: number
     relleno: string | null
     pesos?: { metodo: string; nombre: string; peso: number }[] | null
+    modelos?: string[]
+    impacto_modelos?: ImpactoModelos | null
   } | null
   correccion?: { metodo: string; mejora_pct: number; sesgo_mes: number | null; mes: string; dias_pares: number } | null
   prueba: { fecha: string; real: number; predicho: number }[]
@@ -110,6 +120,16 @@ type TarjetaAnomalias = {
   por_fase: { fase: string; etiqueta: string; meses: number; anomalia_media: number | null }[]
   mensual: { mes: string; anomalia: number | null; fase: string }[]
 }
+type ImpactoModelos = {
+  un_modelo: { nombre: string; mae: number }
+  varios_modelos: { nombre: string; mae: number }
+  mejora_pct: number
+}
+const ESTILO_CONFIANZA: Record<string, string> = {
+  alta: 'bg-emerald-50 text-emerald-700',
+  media: 'bg-amber-50 text-amber-700',
+  baja: 'bg-red-50 text-red-700',
+}
 type OpcionCorreccion = { metodo: string; nombre: string; mae: number; rmse: number; sesgo: number }
 type TarjetaEstacion = {
   tipo: 'estacion'
@@ -133,6 +153,9 @@ type TarjetaEstacion = {
     fechas_prueba: number
     prueba_desde: string
     pesos: { metodo: string; nombre: string; peso: number }[]
+    modelos?: { id: string; nombre: string }[]
+    descartados?: string[]
+    impacto_modelos?: ImpactoModelos | null
     elegido: string
     mejora_pct: number
     opciones: (OpcionCorreccion & { por_anticipacion: Record<string, number> })[]
@@ -216,6 +239,7 @@ const ATAJOS: Boton[] = [
   { texto: 'Alertas por correo', mensaje: 'pronóstico de lluvia' },
   { texto: 'Métodos', mensaje: 'explícame los métodos' },
   { texto: 'Estación del aeropuerto', mensaje: 'impacto de la estación' },
+  { texto: 'Actualización de datos', mensaje: 'estado de la actualización' },
 ]
 
 const SALUDO =
@@ -329,6 +353,11 @@ function CardProyeccion({ t, cb }: { t: TarjetaProyeccion; cb: Callbacks }) {
               Error en la prueba: <b>{t.hibrido.mae.toFixed(1)} {u}</b> (Open-Meteo solo: {t.hibrido.mae_openmeteo.toFixed(1)} {u}
               {t.hibrido.mejora_pct > 0 ? `, ${t.hibrido.mejora_pct.toFixed(0)} % menos` : ''})
             </span>
+            {t.hibrido.modelos && t.hibrido.modelos.length > 1 && (
+              <span className="text-white/90">
+                {t.hibrido.modelos.length} modelos: {t.hibrido.modelos.map((m) => m.split(' (')[0]).join(', ')}
+              </span>
+            )}
             {t.hibrido.pesos && (
               <span className="text-white/90">
                 Combina:{' '}
@@ -436,6 +465,16 @@ function CardProyeccion({ t, cb }: { t: TarjetaProyeccion; cb: Callbacks }) {
                     </span>
                   )
                 )}
+                {d.acuerdo && (
+                  <span
+                    className={`mt-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${ESTILO_CONFIANZA[d.acuerdo.confianza]}`}
+                    title={`Promedio del día según ${d.acuerdo.modelos} modelos:\n${Object.entries(d.acuerdo.valores)
+                      .map(([m, v]) => `${m}: ${v}`)
+                      .join('\n')}`}
+                  >
+                    Confianza {d.acuerdo.confianza}
+                  </span>
+                )}
                 {d.om && d.om.prob_lluvia !== null && d.om.prob_lluvia >= 20 && (
                   <span className={`text-[10px] ${d.om.prob_lluvia >= 60 ? 'font-semibold text-blue-600' : 'text-slate-400'}`}>💧 {d.om.prob_lluvia.toFixed(0)}%</span>
                 )}
@@ -445,7 +484,10 @@ function CardProyeccion({ t, cb }: { t: TarjetaProyeccion; cb: Callbacks }) {
         </div>
         <p className="mt-1 text-[11px] text-slate-400">
           {t.dias.some((d) => d.om)
-            ? `El número grande es la proyección de ClimaTech${esTemp ? ' (promedio del día)' : ''}. El cielo${esTemp ? ', las máximas (↑) y mínimas (↓)' : ''} y la lluvia vienen del pronóstico de Open-Meteo.`
+            ? `El número grande es la proyección de ClimaTech${esTemp ? ' (promedio del día)' : ''}. El cielo${esTemp ? ', las máximas (↑) y mínimas (↓)' : ''} y la lluvia vienen del pronóstico de Open-Meteo.` +
+              (t.dias.some((d) => d.acuerdo)
+                ? ' La confianza indica cuánto coinciden los modelos meteorológicos (pasa el mouse para ver cada uno).'
+                : '')
             : t.rango_estimado
               ? 'Máx/mín estimados con la amplitud diaria de los últimos 90 días.'
               : ''}
@@ -665,6 +707,28 @@ function SeccionHibrido({ m, u }: { m: NonNullable<TarjetaEstacion['mos']>; u: s
         {m.fechas} fechas de pronósticos pasados (1 a 7 días de anticipación) comparados con lo medido, en tres tramos: {m.fechas_entrenamiento} para
         aprender, {m.fechas_validacion} para calcular cómo combinar los modelos y {m.fechas_prueba} para calificar (no vistas antes).
       </p>
+      {m.modelos && m.modelos.length > 1 && (
+        <p className="mt-2 text-xs text-slate-600">
+          <span className="font-medium">Modelos meteorológicos usados ({m.modelos.length}):</span> {m.modelos.map((x) => x.nombre).join(' · ')}
+          {m.descartados && m.descartados.length > 0 && (
+            <span className="text-slate-400"> — descartados por pocos datos: {m.descartados.join(', ')}</span>
+          )}
+        </p>
+      )}
+      {m.impacto_modelos && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-900">
+          <span className="font-semibold">Impacto de usar varios modelos</span>
+          <span>
+            Un modelo: <b>{m.impacto_modelos.un_modelo.mae.toFixed(2)} {u}</b>
+          </span>
+          <span>
+            Varios modelos: <b>{m.impacto_modelos.varios_modelos.mae.toFixed(2)} {u}</b>
+          </span>
+          <span className={m.impacto_modelos.mejora_pct > 0 ? 'font-semibold text-emerald-700' : 'text-slate-500'}>
+            {m.impacto_modelos.mejora_pct > 0 ? `${m.impacto_modelos.mejora_pct.toFixed(0)} % menos error` : 'no mejoró'}
+          </span>
+        </div>
+      )}
       {crudo && (
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
           <div className="rounded-lg bg-slate-50 p-2">
@@ -1219,6 +1283,37 @@ export default function AsistentePage() {
           body: JSON.stringify({ fecha_inicio: a.params.fecha_inicio, fecha_fin: a.params.fecha_fin }),
         })
         agregar({ rol: 'asistente', texto: `Importación completada: ${d.registros_procesados} registros procesados. Ya puedes proyectar con esos datos.` })
+      } else if (a.tipo === 'actualizar_datos') {
+        agregar({ rol: 'asistente', texto: 'Actualizando historial, estación del aeropuerto, pronósticos pasados y modelos. Puede tardar uno o dos minutos…' })
+        type Paso = { dias?: number; filas?: number; hasta?: string | null; omitido?: string; error?: string }
+        const d = await apiFetch<{ omitida?: string; ok?: boolean; segundos?: number; pasos?: Record<string, Paso> }>('/actualizacion/ejecutar', {
+          method: 'POST',
+        })
+        if (d.omitida) {
+          agregar({ rol: 'asistente', texto: d.omitida })
+        } else {
+          const linea = (nombre: string, p: Paso | undefined, unidad: string) =>
+            !p
+              ? ''
+              : p.error
+                ? `• ${nombre}: falló (${p.error.slice(0, 120)}).`
+                : p.omitido
+                  ? `• ${nombre}: ${p.omitido}`
+                  : `• ${nombre}: ${p.dias ?? p.filas ?? 0} ${unidad}${p.hasta ? `, hasta el ${p.hasta.slice(8, 10)}/${p.hasta.slice(5, 7)}` : ''}.`
+          agregar({
+            rol: 'asistente',
+            texto: [
+              `${d.ok ? 'Actualización completa' : 'Actualización terminada con errores'} (${d.segundos} s):`,
+              linea('Historial de Open-Meteo', d.pasos?.historial, 'día(s) nuevo(s)'),
+              linea('Estación del aeropuerto', d.pasos?.estacion, 'día(s) revisado(s)'),
+              linea('Pronósticos pasados', d.pasos?.pronosticos_previos, 'fila(s)'),
+              d.pasos?.reentrenamiento && !d.pasos.reentrenamiento.error ? '• Modelos reentrenados con los datos nuevos.' : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            botones: [{ texto: 'Proyectar temperatura', mensaje: 'proyecta la temperatura de los próximos 7 días' }],
+          })
+        }
       } else if (a.tipo === 'importar_estacion') {
         agregar({ rol: 'asistente', texto: 'Descargando las mediciones de la estación del aeropuerto. Puede tardar un minuto…' })
         const d = await apiFetch<{ lecturas: number; dias: number; dias_completos: number; pronosticos_previos: number; aviso: string | null }>('/estacion/importar', {

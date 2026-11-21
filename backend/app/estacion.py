@@ -304,10 +304,10 @@ def pares_open_meteo_estacion(variable: str) -> pd.DataFrame:
     return om.merge(est, on="fecha", how="inner")
 
 
-# Caché de la corrección: se recalcula como máximo cada 10 minutos o al importar datos nuevos.
+# Caché de la corrección: se recalcula al actualizar o importar datos (o cada 12 horas).
 _cache: dict[str, tuple[float, dict | None]] = {}
 _candado = Lock()
-CACHE_SEGUNDOS = 600
+CACHE_SEGUNDOS = 12 * 3600  # los datos solo cambian al actualizar o importar, y eso limpia la caché
 
 
 def obtener_correccion(variable: str, forzar: bool = False) -> dict | None:

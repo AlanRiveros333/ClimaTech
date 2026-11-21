@@ -8,17 +8,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.auth import get_current_user, UsuarioActual
-from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos, asistente, observaciones
+from app.routers import registros, proyecciones, reportes, usuarios, ia, alertas, fenomenos, asistente, observaciones, tareas
+from app import actualizacion
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Revisión automática de alertas: se activa con ALERTAS_AUTO=1 en backend/.env
-    tarea = None
+    tareas_fondo = []
     if os.getenv("ALERTAS_AUTO") == "1":
-        tarea = asyncio.create_task(alertas.bucle_automatico())
+        tareas_fondo.append(asyncio.create_task(alertas.bucle_automatico()))
+    # Actualización diaria de datos y modelos: activada salvo ACTUALIZACION_AUTO=0 en backend/.env
+    if os.getenv("ACTUALIZACION_AUTO", "1") != "0":
+        tareas_fondo.append(asyncio.create_task(actualizacion.bucle_automatico()))
     yield
-    if tarea:
+    for tarea in tareas_fondo:
         tarea.cancel()
 
 
@@ -57,6 +61,7 @@ app.include_router(alertas.router)
 app.include_router(fenomenos.router)
 app.include_router(asistente.router)
 app.include_router(observaciones.router)
+app.include_router(tareas.router)
 
 
 @app.get("/health")

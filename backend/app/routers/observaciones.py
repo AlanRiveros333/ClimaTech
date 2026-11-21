@@ -48,8 +48,11 @@ def importar(datos: ImportarRequest, usuario: UsuarioActual = Depends(requiere_a
     # Pronósticos pasados de Open-Meteo para el mismo período (modelo híbrido). Si falla, la estación igual queda guardada.
     previos, aviso_previos = 0, None
     try:
-        filas = mos.descargar_previos(datos.fecha_inicio, fin)
+        errores_modelos: dict = {}
+        filas = mos.descargar_previos(datos.fecha_inicio, fin, errores=errores_modelos)
         previos = mos.guardar_previos(filas) if filas else 0
+        if errores_modelos:
+            aviso_previos = "Algunos modelos meteorológicos no respondieron: " + ", ".join(mos.nombre_modelo(m) for m in errores_modelos) + "."
     except Exception as exc:
         aviso_previos = f"No se pudieron importar los pronósticos pasados de Open-Meteo: {exc}"
     estacion.limpiar_cache()

@@ -44,9 +44,10 @@ from app.asistente_texto import (
 from app.auth import UsuarioActual, get_current_user, supabase_admin
 from app.datos import cargar_serie_diaria, listar_eventos
 from app.ia_modelos import METODOS, comparar_metodos, enso_varia, preparar_serie
-from app.pronostico_openmeteo import distancia, obtener_referencia
+from app.pronostico_openmeteo import distancia, obtener_multimodelo, obtener_referencia
 from app import estacion as modulo_estacion
 from app import mos as modulo_mos
+from app import actualizacion as modulo_actualizacion
 from app.routers import alertas as modulo_alertas
 
 router = APIRouter(prefix="/asistente", tags=["asistente"])
@@ -396,12 +397,16 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
     # --- Modelo híbrido (MOS): el pronóstico de Open-Meteo corregido por un modelo que aprendió, con
     # pronósticos pasados y lo medido en la estación, cómo se equivoca Open-Meteo en Cochabamba.
     # Cubre los días que alcanza el pronóstico (hasta 16); los días siguientes los completa el mejor método estadístico.
-    hibrido, mos = None, None
+    hibrido, mos, acuerdo = None, None, {}
     if referencia and slots.get("corregir") is not False:
         mos = modulo_mos.obtener_mos(variable)
         if mos:
             relleno = cercano or mejor or lista[0]
-            pred = modulo_mos.predecir(mos, referencia, [p["fecha"] for p in relleno["proyeccion"]], variable)
+            fechas_p = [p["fecha"] for p in relleno["proyeccion"]]
+            # Pronóstico actual de cada modelo meteorológico (en paralelo); se usa como dato de entrada y para la confianza
+            multi = obtener_multimodelo(fechas_p, mos["_modelos"]) if mos.get("_modelos") else None
+            acuerdo = modulo_mos.acuerdo_modelos(multi, referencia, fechas_p, variable, mos.get("_modelos") or [])
+            pred = modulo_mos.predecir(mos, referencia, fechas_p, variable, multimodelo=multi)
             if len(pred) >= MIN_DIAS_OPENMETEO:
                 opcion = next(o for o in mos["opciones"] if o["metodo"] == mos["elegido"])
                 hibrido = {
@@ -513,6 +518,8 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
                 if referencia and p["fecha"] in referencia
                 else None
             ),
+            # Acuerdo entre los modelos meteorológicos ese día (confianza alta / media / baja)
+            "acuerdo": acuerdo.get(p["fecha"]),
         }
         for p in elegido["proyeccion"]
     ]
@@ -542,6 +549,20 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
         elegido=elegido, criterio=criterio, openmeteo=openmeteo, correccion=correccion_info,
         mos=modulo_mos.informe_publico(mos) if mos and criterio == "mos" else None,
     )
+    if criterio == "mos" and acuerdo:
+        # Confianza según cuánto coinciden los modelos meteorológicos (se inserta antes de la última línea)
+        bajas = [d for d in dias_tarjeta if (d.get("acuerdo") or {}).get("confianza") == "baja"]
+        n_mod = max(a["modelos"] for a in acuerdo.values())
+        if bajas:
+            nombres_dias = ", ".join(f"{d['dia'].lower()} {d['fecha'][8:10]}" for d in bajas[:4])
+            linea = (f"Confianza baja para {nombres_dias}: los {n_mod} modelos meteorológicos no se ponen de acuerdo "
+                     "(revisa esos días más cerca de la fecha).")
+        elif all((d.get("acuerdo") or {}).get("confianza") == "alta" for d in dias_tarjeta if d.get("acuerdo")):
+            linea = f"Confianza alta: los {n_mod} modelos meteorológicos coinciden para estos días."
+        else:
+            linea = f"Confianza media: los {n_mod} modelos meteorológicos coinciden en lo general, con algunas diferencias."
+        partes = corto.rsplit("\n", 1)
+        corto = f"{partes[0]}\n{linea}\n{partes[1]}" if len(partes) == 2 else f"{corto}\n{linea}"
 
     historico = serie.tail(30)
     tarjeta = {
@@ -574,6 +595,8 @@ def _h_proyectar(slots, ctx, avisos, usuario=None):
                 "dias_hibrido": elegido["dias_hibrido"],
                 "relleno": elegido["relleno"],
                 "pesos": mos["pesos"] if mos["elegido"] == "ensamble" else None,
+                "modelos": [m["nombre"] for m in mos.get("modelos", [])],
+                "impacto_modelos": mos.get("impacto_modelos"),
             }
             if criterio == "mos"
             else None
@@ -1045,6 +1068,90 @@ def _h_estacion(slots, ctx, avisos, usuario=None):
     return _resp("\n".join(lineas), ctx, tarjetas=[tarjeta], botones=botones, avisos=avisos)
 
 
+def _ultima_actualizacion_guardada() -> dict | None:
+    """La última actualización queda en la auditoría, así se conoce aunque el backend se haya reiniciado."""
+    try:
+        filas = (
+            supabase_admin.table("auditoria")
+            .select("detalle")
+            .eq("accion", "actualizacion_datos")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        return filas[0]["detalle"] if filas else None
+    except Exception:
+        return None
+
+
+def _texto_pasos(pasos: dict) -> list[str]:
+    lineas = []
+    h, e, p = pasos.get("historial") or {}, pasos.get("estacion") or {}, pasos.get("pronosticos_previos") or {}
+    for nombre, d, texto_ok in (
+        ("Historial de Open-Meteo", h, lambda d: f"{d.get('dias', 0)} día(s) nuevo(s)"),
+        ("Estación del aeropuerto", e, lambda d: f"{d.get('dias', 0)} día(s) revisado(s)"),
+        ("Pronósticos pasados", p, lambda d: f"{d.get('filas', 0)} fila(s)"),
+    ):
+        if "error" in d:
+            lineas.append(f"• {nombre}: falló ({d['error'][:120]}).")
+        elif "omitido" in d:
+            lineas.append(f"• {nombre}: {d['omitido']}")
+        else:
+            lineas.append(f"• {nombre}: {texto_ok(d)}" + (f", hasta el {_fmt(date.fromisoformat(d['hasta']))}." if d.get("hasta") else "."))
+    if "reentrenamiento" in pasos:
+        lineas.append("• Modelos reentrenados con los datos nuevos." if "error" not in pasos["reentrenamiento"] else "• No se pudieron reentrenar los modelos.")
+    return lineas
+
+
+def _h_actualizar_datos(slots, ctx, avisos, usuario=None):
+    """Estado de la actualización automática y, para administradores, actualizar ahora."""
+    est = modulo_actualizacion.estado()
+    if est["en_curso"]:
+        return _resp("Ya hay una actualización en curso. Pregúntame de nuevo en un par de minutos.", ctx, avisos=avisos)
+    ultima = est["ultima"] or _ultima_actualizacion_guardada()
+    try:
+        pend = modulo_actualizacion.pendientes()
+    except Exception:
+        pend = {}
+    lineas = []
+    if est["programada"]:
+        lineas.append(
+            f"La actualización automática está activa: todos los días a las {est['programada']} (hora de Bolivia) y cada vez "
+            "que inicias el backend, si faltan días. Descarga el historial de Open-Meteo, la estación del aeropuerto y los "
+            "pronósticos pasados, y reentrena los modelos."
+        )
+    else:
+        lineas.append("La actualización automática está desactivada (ACTUALIZACION_AUTO=0 en backend/.env).")
+    if ultima:
+        f = ultima.get("fecha", "")
+        lineas.append(
+            f"Última actualización: {f[8:10]}/{f[5:7]}/{f[:4]} a las {f[11:16]} "
+            f"({'sin errores' if ultima.get('ok') else 'con errores'}):"
+        )
+        lineas += _texto_pasos(ultima.get("pasos") or {})
+    else:
+        lineas.append("Todavía no hay ninguna actualización registrada.")
+    nombres = {"historial": "historial", "estacion": "estación", "pronosticos_previos": "pronósticos pasados"}
+    atrasos = [f"{nombres[k]}: {v} día(s)" for k, v in pend.items() if v]
+    lineas.append(
+        "Días pendientes ahora — " + ", ".join(atrasos) + "."
+        if atrasos
+        else "Los datos están al día (el historial de Open-Meteo siempre va unos 5 días atrás: así publica su archivo)."
+    )
+
+    if _es_admin(usuario):
+        return _accion_simple(
+            "actualizar_datos",
+            {},
+            "Actualizar ahora historial, estación, pronósticos pasados y modelos",
+            "\n".join(lineas) + "\n\n¿Quieres que actualice todo ahora? Puede tardar uno o dos minutos.",
+            ctx,
+            avisos,
+        )
+    return _resp("\n".join(lineas), ctx, avisos=avisos)
+
+
 def _h_confirmar(slots, ctx, avisos, usuario=None):
     accion = ctx.get("accion")
     if not accion:
@@ -1090,6 +1197,7 @@ HANDLERS = {
     "historial_alertas": _h_historial_alertas,
     "estacion": _h_estacion,
     "importar_estacion": _h_importar_estacion,
+    "actualizar_datos": _h_actualizar_datos,
     "revisar_alertas": _h_revisar_alertas,
     "confirmar": _h_confirmar,
     "cancelar": _h_cancelar,
