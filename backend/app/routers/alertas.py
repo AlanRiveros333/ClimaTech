@@ -8,6 +8,9 @@ nuevas -> registra lo enviado en alertas_enviadas para no repetir.
 Variables de entorno (backend/.env):
   SMTP_HOST, SMTP_PORT (587 por defecto), SMTP_USER, SMTP_PASSWORD, SMTP_FROM,
   SMTP_STARTTLS (1 por defecto)
+  BREVO_API_KEY             (opcional) envía por la API HTTPS de Brevo en lugar de SMTP.
+                            Útil cuando la red o el antivirus bloquean los puertos 587/465.
+  BREVO_REMITENTE           correo remitente verificado en Brevo (por defecto SMTP_FROM o SMTP_USER)
   ALERTAS_AUTO=1            revisa automáticamente mientras el backend esté encendido
   ALERTAS_INTERVALO_HORAS   cada cuántas horas (6 por defecto)
 """
@@ -62,25 +65,79 @@ def obtener_pronostico(dias: int = DIAS_PRONOSTICO, timeout: float = 20.0) -> di
     return r.json().get("daily", {})
 
 
+def _nombre_ehlo() -> str:
+    """
+    Nombre con el que el PC se presenta a Gmail (comando EHLO).
+    Por defecto smtplib usa el nombre del equipo de Windows; si tiene tildes, «ñ», espacios
+    u otros caracteres raros, Gmail corta la conexión («Connection unexpectedly closed»).
+    Por eso se usa un nombre fijo y válido.
+    """
+    return (os.getenv("SMTP_EHLO") or "localhost").strip()
+
+
 def _enviar_por(host: str, puerto: int, ssl_directo: bool, usuario: str | None, clave: str | None, msg: EmailMessage) -> None:
     contexto = ssl.create_default_context()
-    if ssl_directo:
-        with smtplib.SMTP_SSL(host, puerto, timeout=20, context=contexto) as servidor:
-            if usuario:
-                servidor.login(usuario, clave or "")
-            servidor.send_message(msg)
-        return
-    with smtplib.SMTP(host, puerto, timeout=20) as servidor:
-        servidor.ehlo()
-        if os.getenv("SMTP_STARTTLS", "1") == "1":
-            servidor.starttls(context=contexto)
+    paso = "conectar"
+    try:
+        if ssl_directo:
+            servidor = smtplib.SMTP_SSL(host, puerto, timeout=20, context=contexto, local_hostname=_nombre_ehlo())
+        else:
+            servidor = smtplib.SMTP(host, puerto, timeout=20, local_hostname=_nombre_ehlo())
+        with servidor:
+            paso = "saludo EHLO"
             servidor.ehlo()
-        if usuario:
-            servidor.login(usuario, clave or "")
-        servidor.send_message(msg)
+            if not ssl_directo and os.getenv("SMTP_STARTTLS", "1") == "1":
+                paso = "STARTTLS (cifrado)"
+                servidor.starttls(context=contexto)
+                servidor.ehlo()
+            if usuario:
+                paso = "inicio de sesión (usuario y contraseña)"
+                servidor.login(usuario, clave or "")
+            paso = "envío del mensaje"
+            servidor.send_message(msg)
+    except smtplib.SMTPAuthenticationError:
+        raise
+    except (smtplib.SMTPException, OSError) as exc:
+        raise smtplib.SMTPException(f"falló en el paso «{paso}»: {exc}") from exc
+
+
+BREVO_URL = "https://api.brevo.com/v3/smtp/email"
+
+
+def _enviar_por_brevo(clave_api: str, destino: str, asunto: str, cuerpo: str) -> None:
+    """Envía por HTTPS (puerto 443), que casi ninguna red o antivirus bloquea."""
+    remitente = (
+        os.getenv("BREVO_REMITENTE") or os.getenv("SMTP_FROM") or os.getenv("SMTP_USER") or ""
+    ).strip()
+    if not remitente:
+        raise RuntimeError("Falta BREVO_REMITENTE en backend/.env (el correo verificado como remitente en Brevo).")
+    try:
+        r = httpx.post(
+            BREVO_URL,
+            headers={"api-key": clave_api.strip(), "accept": "application/json"},
+            json={
+                "sender": {"email": remitente, "name": "ClimaTech"},
+                "to": [{"email": destino}],
+                "subject": asunto,
+                "textContent": cuerpo,
+            },
+            timeout=20,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"No se pudo conectar con Brevo: {exc}") from exc
+    if r.status_code >= 300:
+        raise RuntimeError(
+            f"Brevo rechazó el envío ({r.status_code}): {r.text[:300]}. Revisa BREVO_API_KEY y que "
+            f"{remitente} esté verificado como remitente en Brevo."
+        )
 
 
 def enviar_correo(destino: str, asunto: str, cuerpo: str) -> None:
+    clave_brevo = os.getenv("BREVO_API_KEY")
+    if clave_brevo:
+        _enviar_por_brevo(clave_brevo, destino, asunto, cuerpo)
+        return
+
     host = (os.getenv("SMTP_HOST") or "").strip()
     if not host:
         raise RuntimeError("SMTP no configurado (falta SMTP_HOST en backend/.env).")
@@ -116,8 +173,10 @@ def enviar_correo(destino: str, asunto: str, cuerpo: str) -> None:
 
     raise RuntimeError(
         f"No se pudo conectar con el servidor de correo {host}. " + " | ".join(fallos)
-        + ". Revisa SMTP_HOST y SMTP_PORT en backend/.env, tu antivirus o firewall, y prueba con los datos del celular "
-        "(algunas redes bloquean el correo saliente). Puedes diagnosticarlo con: python -m scripts.probar_smtp tu_correo"
+        + ". Si falla en «inicio de sesión», SMTP_PASSWORD debe ser una contraseña de aplicación de Google "
+        "(16 letras), no tu contraseña normal. Si falla antes, revisa el antivirus o la red, o configura "
+        "BREVO_API_KEY en backend/.env para enviar por HTTPS. "
+        "Diagnóstico (desde C:\\ClimaTech\\backend con el venv activo): python scripts\\probar_smtp.py tu_correo"
     )
 
 

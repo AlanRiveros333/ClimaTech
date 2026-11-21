@@ -31,7 +31,8 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+    // Tras iniciar sesión se abre la página de Inicio (desde ahí se accede al asistente).
+    router.push('/')
     router.refresh()
   }
 
