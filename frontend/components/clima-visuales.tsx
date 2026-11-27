@@ -124,19 +124,39 @@ export type Cielo =
   | 'lluvia'
   | 'tormenta'
   | 'nieve'
+  | 'chubascos'
 
-export function categoriaCielo(codigo: number | null | undefined, probLluvia?: number | null): Cielo | null {
+// Open-Meteo entrega por día «la condición más severa del día»: una sola hora con llovizna marca todo el día
+// como «Llovizna» aunque se esperen 0.1 mm. Por eso, para la lluvia y la tormenta, el ícono también considera
+// la probabilidad y la cantidad de lluvia (como el ícono de «sol, nube y gotas» de otros pronósticos).
+export function categoriaCielo(
+  codigo: number | null | undefined,
+  probLluvia?: number | null,
+  lluviaMm?: number | null,
+): Cielo | null {
   if (codigo === null || codigo === undefined) return null
   if (codigo === 0) return 'despejado'
   if (codigo === 1) return 'poco_nublado'
   if (codigo === 2) return 'parcial'
   if (codigo === 3) return (probLluvia ?? 0) >= 50 ? 'nubes_negras' : 'nublado'
   if (codigo === 45 || codigo === 48) return 'niebla'
-  if (codigo >= 51 && codigo <= 57) return 'llovizna'
-  if ((codigo >= 61 && codigo <= 67) || (codigo >= 80 && codigo <= 82)) return 'lluvia'
   if ((codigo >= 71 && codigo <= 77) || codigo === 85 || codigo === 86) return 'nieve'
-  if (codigo >= 95) return 'tormenta'
-  return 'nublado'
+
+  const esLlovizna = codigo >= 51 && codigo <= 57
+  const esLluvia = (codigo >= 61 && codigo <= 67) || (codigo >= 80 && codigo <= 82)
+  const esTormenta = codigo >= 95
+  if (!esLlovizna && !esLluvia && !esTormenta) return 'nublado'
+
+  const prob = probLluvia ?? null
+  const mm = lluviaMm ?? null
+  // Lluvia poco probable y casi nada de agua: el día es básicamente parcialmente nublado
+  if ((prob === null || prob < 30) && (mm === null || mm < 0.5) && (prob !== null || mm !== null)) return 'parcial'
+  // Lluvia probable y con cantidad apreciable: se respeta el código de Open-Meteo
+  const probable = prob === null || prob >= 60
+  const cantidad = mm === null || mm >= 2
+  if (probable && cantidad) return esTormenta ? 'tormenta' : esLluvia ? 'lluvia' : 'llovizna'
+  // Lo demás: chubascos aislados entre momentos de sol
+  return 'chubascos'
 }
 
 export const TEXTO_CIELO: Record<Cielo, string> = {
@@ -150,6 +170,7 @@ export const TEXTO_CIELO: Record<Cielo, string> = {
   lluvia: 'Lluvia',
   tormenta: 'Tormenta eléctrica',
   nieve: 'Nieve',
+  chubascos: 'Posibles chubascos',
 }
 
 const NUBE_PATH = 'M18 50 H46 A10 10 0 0 0 47 30 A14 14 0 0 0 20 27 A11.5 11.5 0 0 0 18 50 Z'
@@ -267,6 +288,13 @@ export function IconoCielo({ cielo, alto = 56, titulo }: { cielo: Cielo; alto?: 
           <path d="M35 39 L25 53 H32 L27 63 L42 48 H35 L40 39 Z" fill="#facc15" stroke="#ca8a04" strokeWidth="0.8" strokeLinejoin="round">
             <animate attributeName="opacity" values="1;1;0.15;1;0.15;1;1" keyTimes="0;0.6;0.65;0.7;0.75;0.8;1" dur="2.6s" repeatCount="indefinite" />
           </path>
+        </>
+      )}
+      {cielo === 'chubascos' && (
+        <>
+          <Sol x={24} y={20} r={9} />
+          <Nube fill="#e2e8f0" sombra="#94a3b8" dx={4} dy={-2} escala={0.85} />
+          <Gotas color="#38bdf8" cortas x0={25} />
         </>
       )}
       {cielo === 'nieve' && (

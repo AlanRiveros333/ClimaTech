@@ -271,7 +271,7 @@ function IconoAlerta({ tipo }: { tipo: string }) {
 // Cielo del pronóstico de Open-Meteo. Con el código WMO se dibuja el cielo real (sol, nubes, lluvia, tormenta);
 // sin código (respuesta antigua) se deduce de la lluvia y la temperatura.
 function cieloDeDia(d: { codigo?: number | null; lluvia_mm: number | null; prob_lluvia: number | null }): Cielo {
-  const c = categoriaCielo(d.codigo, d.prob_lluvia)
+  const c = categoriaCielo(d.codigo, d.prob_lluvia, d.lluvia_mm)
   if (c) return c
   if ((d.lluvia_mm ?? 0) >= 1 || (d.prob_lluvia ?? 0) >= 60) return 'lluvia'
   if ((d.prob_lluvia ?? 0) >= 20) return 'parcial'
