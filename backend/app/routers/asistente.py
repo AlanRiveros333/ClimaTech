@@ -12,7 +12,7 @@ confirmación del usuario, llamando a los endpoints que ya existen (con sus
 propios permisos y auditoría).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -260,7 +260,29 @@ def _consultar_amplitud() -> tuple[float, float] | None:
 
 
 def _guardar_proyeccion(usuario, variable: str, elegido: dict, inicio: date, fin: date, enso_usado: bool, corregida: bool = False) -> bool:
-    """Guarda la proyección como hacía la pantalla de Proyecciones, para que los reportes la incluyan."""
+    """Guarda la proyección como hacía la pantalla de Proyecciones, para que los reportes la incluyan.
+
+    Si hoy ya se guardó la misma proyección (misma variable, método y período), no la repite: así la
+    página de Proyección puede recalcular cada vez que se abre sin llenar la tabla de copias.
+    """
+    try:
+        hoy_utc = datetime.now(timezone.utc).date().isoformat()
+        repetida = (
+            supabase_admin.table("proyecciones")
+            .select("id")
+            .eq("variable", variable)
+            .eq("metodo", elegido["metodo"])
+            .eq("periodo_inicio", inicio.isoformat())
+            .eq("periodo_fin", fin.isoformat())
+            .gte("created_at", hoy_utc)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if repetida:
+            return True
+    except Exception:
+        pass
     try:
         fila = (
             supabase_admin.table("proyecciones")

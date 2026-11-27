@@ -250,15 +250,26 @@ export default async function Inicio() {
             ClimaTech
           </span>
           <nav className="hidden items-center gap-6 text-sm text-white/85 md:flex">
-            <a href="#explicacion" className="hover:text-white">Cómo funciona</a>
-            <a href="#metodos" className="hover:text-white">La IA</a>
-            <a href="#alertas" className="hover:text-white">Alertas</a>
-            <a href="#preguntas" className="hover:text-white">Preguntas</a>
+            {conSesion ? (
+              <>
+                <Link href="/proyecciones" className="hover:text-white">Proyección</Link>
+                <Link href="/estacion" className="hover:text-white">Estación</Link>
+                <Link href="/reportes" className="hover:text-white">Reportes</Link>
+                <Link href="/asistente" className="hover:text-white">Asistente</Link>
+              </>
+            ) : (
+              <>
+                <a href="#explicacion" className="hover:text-white">Cómo funciona</a>
+                <a href="#metodos" className="hover:text-white">La IA</a>
+                <a href="#alertas" className="hover:text-white">Alertas</a>
+                <a href="#preguntas" className="hover:text-white">Preguntas</a>
+              </>
+            )}
           </nav>
           <div className="flex items-center gap-2">
             {conSesion ? (
-              <Link href="/asistente" className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-brand-700 hover:bg-white/90">
-                Ir al asistente
+              <Link href="/proyecciones" className="rounded-full bg-white px-4 py-1.5 text-sm font-medium text-brand-700 hover:bg-white/90">
+                Ver la proyección
               </Link>
             ) : (
               <>
@@ -292,8 +303,8 @@ export default async function Inicio() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               {conSesion ? (
-                <Link href="/asistente" className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-medium text-brand-700 shadow-lg shadow-black/20 transition hover:-translate-y-0.5">
-                  Ir al asistente <ArrowRight size={18} />
+                <Link href="/proyecciones" className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-medium text-brand-700 shadow-lg shadow-black/20 transition hover:-translate-y-0.5">
+                  Ver la proyección <ArrowRight size={18} />
                 </Link>
               ) : (
                 <Link href="/register" className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-medium text-brand-700 shadow-lg shadow-black/20 transition hover:-translate-y-0.5">

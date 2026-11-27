@@ -133,3 +133,8 @@ body {
     @apply px-3 py-2.5 text-xs font-medium text-slate-600;
   }
 }
+/* Barra de carga de los apartados (Proyección, Estación y Reportes) */
+@keyframes barra {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}

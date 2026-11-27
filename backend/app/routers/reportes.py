@@ -506,3 +506,369 @@ def generar_reporte(
     ).execute()
 
     return {"mensaje": "Reporte generado correctamente.", "archivo_url": archivo_url, "formato": datos.formato}
+
+
+# ----------------------------------------------------------------------------
+# Reporte completo: todos los datos registrados
+# ----------------------------------------------------------------------------
+MESES_ES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+DIAS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+
+def _cargar_diarios() -> pd.DataFrame:
+    """Un registro por día (vista registros_diarios), paginado de 1000 en 1000."""
+
+    def leer(campos: str) -> list[dict]:
+        filas, desde, paso = [], 0, 1000
+        while True:
+            r = supabase_admin.table("registros_diarios").select(campos).order("fecha").range(desde, desde + paso - 1).execute()
+            filas.extend(r.data or [])
+            if len(r.data or []) < paso:
+                return filas
+            desde += paso
+
+    try:
+        filas = leer("fecha,temperatura,temperatura_max,temperatura_min,humedad,velocidad_viento,lecturas")
+    except Exception:  # vista sin máximos/mínimos (migración 003 no ejecutada)
+        filas = leer("fecha,temperatura,humedad,velocidad_viento,lecturas")
+    df = pd.DataFrame(filas)
+    if df.empty:
+        return df
+    df["fecha"] = pd.to_datetime(df["fecha"])
+    for c in ("temperatura", "temperatura_max", "temperatura_min", "humedad", "velocidad_viento", "lecturas"):
+        if c in df:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
+def _cargar_manuales() -> list[dict]:
+    filas, desde, paso = [], 0, 1000
+    while True:
+        r = (
+            supabase_admin.table("registros_climaticos")
+            .select("fecha,hora,temperatura,humedad,velocidad_viento")
+            .eq("fuente", "manual")
+            .order("fecha")
+            .order("hora")
+            .range(desde, desde + paso - 1)
+            .execute()
+        )
+        filas.extend(r.data or [])
+        if len(r.data or []) < paso:
+            return filas
+        desde += paso
+
+
+def _generar_pdf_completo(df: pd.DataFrame, manuales: list[dict], generado: str, usuario: str) -> bytes:
+    from reportlab.graphics.charts.lineplots import LinePlot
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import (
+        BaseDocTemplate, CondPageBreak, Frame, KeepTogether, NextPageTemplate, PageBreak, PageTemplate, Paragraph, Spacer, Table, TableStyle,
+    )
+    from reportlab.platypus.tableofcontents import TableOfContents
+
+    marca = colors.HexColor("#0B4F6C")
+    acento = colors.HexColor("#0E7C9B")
+    gris = colors.HexColor("#475569")
+    claro = colors.HexColor("#F1F5F9")
+    borde = colors.HexColor("#CBD5E1")
+    ancho_pag, alto_pag = A4
+    tiene_rango = "temperatura_max" in df.columns
+
+    est = getSampleStyleSheet()
+    normal = ParagraphStyle("n", parent=est["BodyText"], fontSize=9.5, leading=13.5)
+    nota = ParagraphStyle("nota", parent=normal, fontSize=8, leading=11, textColor=gris)
+    h1 = ParagraphStyle("h1", parent=est["Heading1"], textColor=marca, fontSize=17, spaceAfter=8)
+    h2 = ParagraphStyle("h2", parent=est["Heading2"], textColor=marca, fontSize=12.5, spaceBefore=6, spaceAfter=6)
+    portada_t = ParagraphStyle("pt", parent=h1, fontSize=26, leading=32, textColor=colors.white)
+    portada_s = ParagraphStyle("ps", parent=normal, fontSize=12, leading=17, textColor=colors.white)
+    cifra = ParagraphStyle("cifra", parent=normal, fontSize=18, leading=22, alignment=TA_CENTER, textColor=marca, fontName="Helvetica-Bold")
+    cifra_e = ParagraphStyle("cifrae", parent=nota, alignment=TA_CENTER)
+
+    def tabla(filas, anchos, alinear_desde=1, resaltar_ultima=False):
+        t = Table(filas, colWidths=anchos, repeatRows=1)
+        estilo = [
+            ("BACKGROUND", (0, 0), (-1, 0), marca),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("ALIGN", (alinear_desde, 0), (-1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, claro]),
+            ("GRID", (0, 0), (-1, -1), 0.25, borde),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.6),
+        ]
+        if resaltar_ultima:
+            estilo += [
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#DCEFF6")),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ]
+        t.setStyle(TableStyle(estilo))
+        return t
+
+    def f(x, dec=1):
+        return "—" if x is None or pd.isna(x) else f"{float(x):.{dec}f}"
+
+    # ---- documento con índice automático y "Página X de Y"
+    class Documento(BaseDocTemplate):
+        def afterFlowable(self, fl):
+            if isinstance(fl, Paragraph) and getattr(fl, "_indice", None) is not None:
+                nivel, texto, clave = fl._indice
+                self.canv.bookmarkPage(clave)
+                self.canv.addOutlineEntry(texto, clave, level=nivel, closed=nivel == 0)
+                self.notify("TOCEntry", (nivel, texto, self.page, clave))
+
+    class LienzoNumerado(rl_canvas.Canvas):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self._paginas = []
+
+        def showPage(self):
+            self._paginas.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._paginas)
+            for estado in self._paginas:
+                self.__dict__.update(estado)
+                if self._pageNumber > 1:
+                    self.setStrokeColor(borde)
+                    self.setLineWidth(0.5)
+                    self.line(2 * cm, alto_pag - 1.45 * cm, ancho_pag - 2 * cm, alto_pag - 1.45 * cm)
+                    self.line(2 * cm, 1.45 * cm, ancho_pag - 2 * cm, 1.45 * cm)
+                    self.setFont("Helvetica-Bold", 8)
+                    self.setFillColor(marca)
+                    self.drawString(2 * cm, alto_pag - 1.25 * cm, "ClimaTech")
+                    self.setFont("Helvetica", 8)
+                    self.setFillColor(gris)
+                    self.drawRightString(ancho_pag - 2 * cm, alto_pag - 1.25 * cm, "Reporte completo de datos climáticos · Cochabamba")
+                    self.drawString(2 * cm, 1.0 * cm, f"Generado el {generado}")
+                    self.drawRightString(ancho_pag - 2 * cm, 1.0 * cm, f"Página {self._pageNumber} de {total}")
+                super().showPage()
+            super().save()
+
+    def portada_fondo(c, _doc):
+        c.saveState()
+        c.setFillColor(colors.HexColor("#072d3e"))
+        c.rect(0, alto_pag * 0.45, ancho_pag, alto_pag * 0.55, stroke=0, fill=1)
+        c.setFillColor(marca)
+        c.rect(0, alto_pag * 0.45, ancho_pag, alto_pag * 0.12, stroke=0, fill=1)
+        c.setFillColor(acento)
+        c.rect(0, alto_pag * 0.45, ancho_pag, 0.25 * cm, stroke=0, fill=1)
+        c.restoreState()
+
+    buf = BytesIO()
+    doc = Documento(buf, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm, topMargin=2.1 * cm, bottomMargin=2 * cm,
+                    title="Reporte completo de datos climáticos — Cochabamba", author="ClimaTech")
+    marco = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="marco")
+    doc.addPageTemplates([
+        PageTemplate(id="portada", frames=[marco], onPage=portada_fondo),
+        PageTemplate(id="normal", frames=[marco]),
+    ])
+
+    def titulo(texto, estilo, nivel, clave):
+        p = Paragraph(texto, estilo)
+        p._indice = (nivel, texto, clave)
+        return p
+
+    desde, hasta = df["fecha"].min(), df["fecha"].max()
+    n_dias = len(df)
+    rango_dias = (hasta - desde).days + 1
+    lecturas = int(df["lecturas"].sum()) if "lecturas" in df else n_dias
+
+    el = [
+        Spacer(1, 3.2 * cm),
+        Paragraph("Reporte completo de datos climáticos", portada_t),
+        Spacer(1, 0.3 * cm),
+        Paragraph("Cochabamba, Bolivia · Todos los registros guardados en ClimaTech", portada_s),
+        Spacer(1, 0.2 * cm),
+        Paragraph(f"Del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}", portada_s),
+        Spacer(1, 6.4 * cm),
+    ]
+    cifras = [
+        (f"{n_dias:,}".replace(",", "."), "días con datos"),
+        (f"{lecturas:,}".replace(",", "."), "lecturas horarias y manuales"),
+        (f"{n_dias / rango_dias * 100:.0f} %", "de cobertura del período"),
+        (str(df["fecha"].dt.year.nunique()), "años de historial"),
+    ]
+    t = Table([[Paragraph(c, cifra) for c, _ in cifras], [Paragraph(e, cifra_e) for _, e in cifras]], colWidths=[doc.width / 4] * 4)
+    t.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.5, borde), ("INNERGRID", (0, 0), (-1, -1), 0.25, borde),
+                           ("BACKGROUND", (0, 0), (-1, -1), claro), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+    el += [
+        t,
+        Spacer(1, 1.2 * cm),
+        Paragraph(f"Generado el {generado} por {usuario}.", normal),
+        Paragraph("Fuentes: historial horario de Open-Meteo (reanálisis para las coordenadas de Cochabamba) y lecturas registradas a mano en el sistema.", normal),
+        NextPageTemplate("normal"),
+        PageBreak(),
+    ]
+
+    # ---- índice
+    indice = TableOfContents()
+    indice.levelStyles = [
+        ParagraphStyle("i0", parent=normal, fontName="Helvetica-Bold", fontSize=10, leading=14, leftIndent=0, spaceBefore=6, spaceAfter=1),
+        ParagraphStyle("i1", parent=normal, fontSize=9, leftIndent=14, leading=12, spaceBefore=0, spaceAfter=0),
+    ]
+    el += [Paragraph("Contenido", h1), indice, PageBreak()]
+
+    # ---- cómo leer
+    el += [
+        titulo("1. Cómo leer este reporte", h1, 0, "leer"),
+        Paragraph(
+            "Este documento reúne <b>todos los datos climáticos</b> guardados en ClimaTech. Para que sea fácil de consultar, "
+            "los registros horarios se resumen en <b>un renglón por día</b>, y los días se agrupan por año y por mes: "
+            "cada mes tiene su propia tabla, que termina con el promedio del mes. Use el índice para ir directo al período que le interesa.",
+            normal,
+        ),
+        Spacer(1, 6),
+        tabla(
+            [["Columna", "Qué significa"],
+             ["T. media (°C)", "Promedio de la temperatura de las 24 horas del día."],
+             ["T. máx / T. mín (°C)", "La temperatura más alta y la más baja registradas ese día."],
+             ["Humedad (%)", "Humedad relativa promedio del día: cuánta agua tiene el aire respecto al máximo posible."],
+             ["Viento (km/h)", "Velocidad media del viento a 10 metros de altura."],
+             ["Lecturas", "Cuántos registros se usaron para el promedio (24 = día completo)."]],
+            [4.2 * cm, doc.width - 4.2 * cm], alinear_desde=9,
+        ),
+        Spacer(1, 10),
+        Paragraph("Un guion (—) indica que ese día no hubo dato para esa variable.", nota),
+    ]
+
+    # ---- resumen general
+    el += [PageBreak(), titulo("2. Resumen general", h1, 0, "resumen")]
+    filas = [["Variable", "Días", "Promedio", "Mínimo", "Máximo", "Desv. est."]]
+    for clave, (nombre, unidad) in VARIABLES.items():
+        s = df[clave].dropna() if clave in df else pd.Series(dtype=float)
+        if s.empty:
+            filas.append([f"{nombre} ({unidad})", "0", "—", "—", "—", "—"])
+            continue
+        minimo = df["temperatura_min"].min() if clave == "temperatura" and tiene_rango else s.min()
+        maximo = df["temperatura_max"].max() if clave == "temperatura" and tiene_rango else s.max()
+        filas.append([f"{nombre} ({unidad})", str(len(s)), f(s.mean()), f(minimo), f(maximo), f(s.std(ddof=1) if len(s) > 1 else 0)])
+    el += [tabla(filas, [5.6 * cm, 1.8 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm, 2.4 * cm]), Spacer(1, 4)]
+    if tiene_rango:
+        el.append(Paragraph("En temperatura, el mínimo y el máximo son los valores extremos de una hora concreta; el promedio es el de los días.", nota))
+
+    # gráfico: temperatura media mensual
+    mensual = df.set_index("fecha")["temperatura"].resample("MS").mean().dropna()
+    if len(mensual) >= 2:
+        dib = Drawing(doc.width, 6.4 * cm)
+        lp = LinePlot()
+        lp.x, lp.y, lp.width, lp.height = 1.2 * cm, 0.9 * cm, doc.width - 1.6 * cm, 4.8 * cm
+        lp.data = [[(i, float(v)) for i, v in enumerate(mensual.values)]]
+        lp.lines[0].strokeColor = acento
+        lp.lines[0].strokeWidth = 1.6
+        lp.yValueAxis.valueMin = float(mensual.min()) - 1
+        lp.yValueAxis.valueMax = float(mensual.max()) + 1
+        lp.yValueAxis.labels.fontSize = 7
+        lp.yValueAxis.labelTextFormat = "%.0f °C"
+        lp.xValueAxis.valueMin, lp.xValueAxis.valueMax = 0, len(mensual) - 1
+        paso = max(1, len(mensual) // 8)
+        lp.xValueAxis.valueSteps = list(range(0, len(mensual), paso))
+        etiquetas = {i: f"{MESES_ES[m.month][:3]} {m.year % 100:02d}" for i, m in enumerate(mensual.index)}
+        lp.xValueAxis.labelTextFormat = lambda v: etiquetas.get(int(v), "")
+        lp.xValueAxis.labels.fontSize = 7
+        dib.add(lp)
+        dib.add(String(0, 6.0 * cm, "Temperatura media de cada mes (°C)", fontSize=9, fillColor=marca, fontName="Helvetica-Bold"))
+        el += [Spacer(1, 10), dib]
+
+    # resumen por año
+    el += [CondPageBreak(6 * cm), Paragraph("Resumen por año", h2)]
+    filas = [["Año", "Días", "T. media", "T. máx", "T. mín", "Humedad", "Viento"]]
+    for anio, g in df.groupby(df["fecha"].dt.year):
+        filas.append([
+            str(anio), str(len(g)), f(g["temperatura"].mean()),
+            f(g["temperatura_max"].max() if tiene_rango else g["temperatura"].max()),
+            f(g["temperatura_min"].min() if tiene_rango else g["temperatura"].min()),
+            f(g["humedad"].mean(), 0), f(g["velocidad_viento"].mean()),
+        ])
+    el.append(tabla(filas, [2 * cm, 1.8 * cm, 2.4 * cm, 2.4 * cm, 2.4 * cm, 2.6 * cm, 2.8 * cm]))
+    el.append(Paragraph("T. máx y T. mín del año son los extremos registrados; las demás columnas son promedios.", nota))
+
+    # ---- detalle diario por año y mes
+    seccion = 3
+    columnas = ["Fecha", "Día", "T. media", "T. máx", "T. mín", "Humedad", "Viento", "Lecturas"] if tiene_rango else ["Fecha", "Día", "T. media", "Humedad", "Viento", "Lecturas"]
+    anchos = [2.4 * cm, 1.4 * cm, 2 * cm, 2 * cm, 2 * cm, 2.2 * cm, 2.2 * cm, 2.2 * cm] if tiene_rango else [2.8 * cm, 1.8 * cm, 3 * cm, 3 * cm, 3 * cm, 3.4 * cm]
+    for anio, g_anio in df.groupby(df["fecha"].dt.year):
+        el += [PageBreak(), titulo(f"{seccion}. Datos diarios de {anio}", h1, 0, f"a{anio}")]
+        el.append(Paragraph(f"{len(g_anio)} días con datos. Temperatura media del año: {f(g_anio['temperatura'].mean())} °C.", normal))
+        el.append(Spacer(1, 4))
+        for mes, g in g_anio.groupby(g_anio["fecha"].dt.month):
+            filas = [columnas]
+            for _, r in g.iterrows():
+                base = [r["fecha"].strftime("%d/%m/%Y"), DIAS_ES[r["fecha"].weekday()], f(r["temperatura"])]
+                if tiene_rango:
+                    base += [f(r["temperatura_max"]), f(r["temperatura_min"])]
+                base += [f(r["humedad"], 0), f(r["velocidad_viento"]), str(int(r["lecturas"])) if pd.notna(r.get("lecturas")) else "—"]
+                filas.append(base)
+            pie = ["Promedio del mes", "", f(g["temperatura"].mean())]
+            if tiene_rango:
+                pie += [f(g["temperatura_max"].mean()), f(g["temperatura_min"].mean())]
+            pie += [f(g["humedad"].mean(), 0), f(g["velocidad_viento"].mean()), str(len(g)) + " días"]
+            filas.append(pie)
+            nombre = f"{MESES_ES[mes]} {anio}"
+            t = tabla(filas, anchos, alinear_desde=2, resaltar_ultima=True)
+            t.setStyle(TableStyle([("SPAN", (0, -1), (1, -1))]))
+            el.append(KeepTogether([titulo(nombre, h2, 1, f"m{anio}{mes:02d}"), t, Spacer(1, 10)]))
+        seccion += 1
+
+    # ---- registros manuales
+    el += [PageBreak(), titulo(f"{seccion}. Lecturas registradas a mano", h1, 0, "manuales")]
+    if not manuales:
+        el.append(Paragraph("No hay lecturas registradas a mano: todos los datos provienen de Open-Meteo.", normal))
+    else:
+        el.append(Paragraph(f"{len(manuales)} lectura(s) ingresadas por los usuarios del sistema, en el orden en que ocurrieron.", normal))
+        el.append(Spacer(1, 4))
+        filas = [["Fecha", "Hora", "Temperatura (°C)", "Humedad (%)", "Viento (km/h)"]]
+        for m in manuales:
+            filas.append([_fecha_es(m["fecha"]), str(m.get("hora") or "")[:5], f(m.get("temperatura")), f(m.get("humedad"), 0), f(m.get("velocidad_viento"))])
+        el.append(tabla(filas, [3 * cm, 2.2 * cm, 3.8 * cm, 3.6 * cm, 4.4 * cm], alinear_desde=2))
+
+    el += [Spacer(1, 16), Paragraph("Fin del reporte. Los valores provienen de mediciones y estimaciones; para decisiones importantes consulte el pronóstico oficial del SENAMHI.", nota)]
+
+    doc.multiBuild(el, canvasmaker=LienzoNumerado)
+    return buf.getvalue()
+
+
+@router.post("/completo")
+def generar_reporte_completo(usuario: UsuarioActual = Depends(get_current_user)):
+    """PDF con todos los datos registrados, un día por renglón, agrupado por año y mes, con índice y páginas numeradas."""
+    df = _cargar_diarios()
+    if df.empty:
+        raise HTTPException(status_code=404, detail="Todavía no hay datos climáticos registrados.")
+    zona = timezone(timedelta(hours=-4))
+    try:
+        contenido = _generar_pdf_completo(df, _cargar_manuales(), datetime.now(zona).strftime("%d/%m/%Y %H:%M"), usuario.email or usuario.id)
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"Falta instalar una librería en el backend ({exc.name}). Ejecuta: pip install -r requirements.txt")
+
+    inicio, fin = df["fecha"].min().date(), df["fecha"].max().date()
+    ruta = f"{usuario.id}/completo_{inicio}_{fin}_{uuid4().hex[:8]}.pdf"
+    try:
+        supabase_admin.storage.from_(BUCKET).upload(ruta, contenido, {"content-type": "application/pdf", "upsert": "true"})
+        archivo_url = str(supabase_admin.storage.from_(BUCKET).get_public_url(ruta)).rstrip("?")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo guardar el archivo en Supabase Storage (bucket '{BUCKET}'): {exc}")
+
+    fila = {"tipo": "pdf", "periodo_inicio": inicio.isoformat(), "periodo_fin": fin.isoformat(), "archivo_url": archivo_url}
+    for extra in ({"generado_por": usuario.id, "parametros": {"alcance": "completo"}}, {"generado_por": usuario.id}, {}):
+        try:
+            supabase_admin.table("reportes").insert({**fila, **extra}).execute()
+            break
+        except Exception:
+            continue
+    try:
+        supabase_admin.table("auditoria").insert(
+            {"usuario_id": usuario.id, "accion": "generar_reporte", "tabla_afectada": "reportes",
+             "detalle": {"formato": "pdf", "alcance": "completo", "periodo_inicio": inicio.isoformat(), "periodo_fin": fin.isoformat()}}
+        ).execute()
+    except Exception:
+        pass
+    return {"mensaje": "Reporte completo generado.", "archivo_url": archivo_url, "dias": int(len(df))}
