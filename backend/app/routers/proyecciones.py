@@ -239,3 +239,80 @@ async def generar_proyeccion(
         ],
         "proyeccion": valores,
     }
+
+# ----------------------------------------------------------------------------
+# Proyección avanzada independiente del chatbot
+# ----------------------------------------------------------------------------
+class GenerarProyeccionAvanzadaRequest(BaseModel):
+    variable: str
+    periodo_inicio: date
+    periodo_fin: date
+    dias_a_proyectar: int = 7
+    metodo: str | None = None
+    enso: str = "auto"  # "auto" | "si" | "no"
+    corregir_estacion: bool = True
+
+
+METODOS_AVANZADOS_VALIDOS = {
+    "persistencia",
+    "promedio_movil",
+    "holt",
+    "regresion_lineal",
+    "random_forest",
+    "gradient_boosting",
+    "hibrido_mos",
+}
+
+
+@router.post("/avanzada")
+def generar_proyeccion_avanzada(
+    datos: GenerarProyeccionAvanzadaRequest,
+    usuario: UsuarioActual = Depends(get_current_user),
+):
+    """
+    Ejecuta el motor completo de proyección sin utilizar el endpoint conversacional.
+
+    Se reutiliza el motor validado por el asistente para mantener una sola implementación
+    de los seis métodos, ENSO, corrección SLCB, referencia Open-Meteo, MOS y backtesting.
+    No recibe ni conserva contexto conversacional.
+    """
+    if datos.variable not in VARIABLES_VALIDAS:
+        raise HTTPException(status_code=400, detail=f"Variable inválida. Usa una de: {sorted(VARIABLES_VALIDAS)}")
+    if datos.periodo_fin < datos.periodo_inicio:
+        raise HTTPException(status_code=400, detail="El período final no puede ser anterior al inicial.")
+    if not 1 <= datos.dias_a_proyectar <= 30:
+        raise HTTPException(status_code=400, detail="dias_a_proyectar debe estar entre 1 y 30.")
+    if datos.metodo is not None and datos.metodo not in METODOS_AVANZADOS_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Método inválido. Usa uno de: {sorted(METODOS_AVANZADOS_VALIDOS)}")
+    if datos.enso not in {"auto", "si", "no"}:
+        raise HTTPException(status_code=400, detail="enso debe ser 'auto', 'si' o 'no'.")
+
+    # Importación diferida para evitar acoplar el arranque de los routers.
+    # Se llama directamente al motor de proyección, no a POST /asistente/mensaje.
+    from app.routers.asistente import _h_proyectar
+
+    slots = {
+        "variable": datos.variable,
+        "dias": datos.dias_a_proyectar,
+        "periodo": {
+            "inicio": datos.periodo_inicio.isoformat(),
+            "fin": datos.periodo_fin.isoformat(),
+        },
+        "usar_enso": None if datos.enso == "auto" else datos.enso == "si",
+        "corregir": datos.corregir_estacion,
+    }
+    if datos.metodo:
+        slots["metodo"] = datos.metodo
+
+    resultado = _h_proyectar(slots, {}, [], usuario)
+    tarjeta = next(
+        (item for item in resultado.get("tarjetas", []) if item.get("tipo") == "proyeccion"),
+        None,
+    )
+    if tarjeta is None:
+        raise HTTPException(status_code=422, detail=resultado.get("respuesta", "No se pudo generar la proyección."))
+
+    return {
+        "mensaje": resultado.get("respuesta", "Proyección generada."),
+        "tarjeta": tarjeta,
+    }
